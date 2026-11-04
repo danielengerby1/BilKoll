@@ -16,7 +16,14 @@ export async function getOrFetchVehicle(rawRegnr: string): Promise<Vehicle | nul
   if (cached && Date.now() - cached.fetchedAt.getTime() < CACHE_TTL_MS) return cached;
 
   const provider = getVehicleDataProvider();
-  const record = await provider.lookup(regnr);
+  let record;
+  try {
+    record = await provider.lookup(regnr);
+  } catch (err) {
+    // Provider down, quota or rate limit: serve the (possibly stale) cache rather than failing the page.
+    console.error("[vehicle-lookup] provider failed", err instanceof Error ? err.message : err);
+    return cached;
+  }
   if (!record) return cached;
 
   const data = { ...record, dataSource: provider.name, fetchedAt: new Date() };

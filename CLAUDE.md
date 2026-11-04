@@ -33,8 +33,9 @@ Seed is idempotent (upserts by slug) and never deletes user data.
 - The app connects through the Supabase **transaction pooler** as the least-privilege role `bilkoll_app` (DML only on the app tables). `DATABASE_URL` / `DIRECT_URL` are set in Vercel as sensitive env vars – never commit them.
 - RLS is enabled on every table and `anon`/`authenticated` have no grants, so Supabase's Data API exposes nothing. New tables must get the same treatment (`ENABLE ROW LEVEL SECURITY`, `REVOKE ALL ... FROM anon, authenticated`, a `bilkoll_app` policy + grant).
 - Schema changes: add a Prisma migration in `prisma/migrations/`, then apply the same SQL in Supabase (as a migration) and insert the row into `_prisma_migrations` (sha256 checksum of `migration.sql`), so `prisma migrate deploy` stays in sync. Run `get_advisors` (security) afterwards.
-- Seed changes: edit `prisma/data/*.ts`, then `npx tsx scripts/seed-sql.ts` prints idempotent upsert SQL to run in Supabase.
-- Vercel builds don't touch the database (`scripts/vercel-build.sh`) unless `RUN_DB_MIGRATIONS=1` with a privileged `DIRECT_URL`.
+- Seed changes: edit `prisma/data/*.ts`. Production has `RUN_DB_SEED=1`, so every Vercel deploy upserts services and workshops by slug (as `bilkoll_app`). `npx tsx scripts/seed-sql.ts` prints the same data as SQL if you need to run it manually.
+- Vercel builds never run DDL (`scripts/vercel-build.sh`) unless `RUN_DB_MIGRATIONS=1` with a privileged `DIRECT_URL`.
+- Workshop coordinates: brand dealers from Bilweb's JSON-LD (exact), others geocoded with OpenStreetMap Nominatim; `geoPrecision` records ADDRESS vs STREET.
 
 ## Project layout
 ```
@@ -56,7 +57,7 @@ Import rules: `app → features → server/lib`. Features never import from each
 | Route | What |
 |---|---|
 | `/` | Hero, regnr lookup, search form, standard price per service |
-| `/jamfor?tjanst=&postnr=&regnr=&sortera=` | Real workshops with estimated price ranges (GET params → shareable URLs) |
+| `/jamfor?tjanst=&postnr=&regnr=&sortera=&typ=&marke=` | Real workshops with estimated prices – list + Apple Maps–style map (MapLibre + OpenFreeMap tiles, no key). `typ`: ALLA/OBEROENDE/MARKE, `marke`: brand (defaults to the car's make) |
 | `/bil/[regnr]` | Car summary, besiktning deadline, model guide, estimates for the car |
 | `/verkstad/[id]` | Workshop contact details, source, estimates per service |
 | `/granska?verkstad=&tjanst=&regnr=` | Compare a received quote with our estimate |
@@ -84,7 +85,7 @@ Import rules: `app → features → server/lib`. Features never import from each
 - Tests use the `mock` provider (`AI_PROVIDER=mock`). No network calls in tests.
 
 ## External data
-- Vehicle lookup goes through `VehicleDataProvider` (`src/server/vehicle-data`). The `mock` adapter is the default. Real adapters (Biluppgifter, Transportstyrelsen) must return the same `VehicleRecord` shape and cache into `Vehicle`.
+- Vehicle lookup goes through `VehicleDataProvider` (`src/server/vehicle-data`). `mock` is the default; `biluppgifter` (real plates) is enabled with `VEHICLE_DATA_PROVIDER=biluppgifter` + `BILUPPGIFTER_API_KEY`. Never request owner packages (`owner`, `realOwner`, `historicalOwners`) – we only need the car. Parsing lives in the pure `biluppgifter-parse.ts` (tested). Lookups are cached in `Vehicle` for 30 days; provider errors fall back to the cache.
 - Secrets only via env vars (`.env`, never committed; document new ones in `.env.example`).
 
 ## Coding style

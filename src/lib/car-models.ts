@@ -227,7 +227,9 @@ export function findCarModelGuide(make: string, model: string): CarModelGuide | 
   const m = make.toLowerCase();
   const mo = model.toLowerCase();
   return CAR_MODEL_GUIDES.find(
-    (g) => (g.make.toLowerCase() === m || (m === "vw" && g.make === "Volkswagen")) && g.model.toLowerCase() === mo,
+    (g) =>
+      (g.make.toLowerCase() === m || (m === "vw" && g.make === "Volkswagen")) &&
+      (mo === g.model.toLowerCase() || mo.startsWith(`${g.model.toLowerCase()} `)),
   );
 }
 

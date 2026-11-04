@@ -1,9 +1,12 @@
 import "server-only";
 import { db } from "@/server/db";
-import { WorkshopChain, WorkshopTier, type PriceClass } from "@/lib/domain";
+import { WorkshopChain, WorkshopTier, type PriceClass, type WorkshopFilter } from "@/lib/domain";
 import { estimatePrice, marketEstimate, type PriceEstimate } from "@/lib/estimate";
-import { distanceKm, postalCodeToLatLng } from "@/lib/geo";
+import { distanceKm, postalCodeToLatLng, type LatLng } from "@/lib/geo";
+import { collectMakes, isAuthorizedFor, shouldShowWorkshop } from "../filter";
 import { rankOffers, type ComparisonSummary, type Offer } from "../ranking";
+
+export { isAuthorizedFor } from "../filter";
 
 export function listServices() {
   return db.standardService.findMany({ orderBy: { sortOrder: "asc" } });
@@ -16,23 +19,21 @@ export function getServiceBySlug(slug: string) {
 export type ComparisonQuery = {
   serviceSlug: string;
   postalCode: string | null;
-  /** The user's car make – used to mark authorised workshops for that make. */
+  /** Car make – from the looked-up car or the brand picker. */
   make: string | null;
+  filter: WorkshopFilter;
   priceClass: PriceClass;
 };
 
 export type ComparisonResult = ComparisonSummary & {
   postalCodeResolved: boolean;
+  origin: LatLng;
   market: PriceEstimate;
+  /** Every make we have brand workshops for (brand picker). */
+  makes: string[];
+  /** Brand workshops available for the chosen make (shown in the filter). */
+  dealerCountForMake: number;
 };
-
-export function isAuthorizedFor(authorizedMakes: string | null, make: string | null): boolean {
-  if (!authorizedMakes || !make) return false;
-  return authorizedMakes
-    .split(",")
-    .map((m) => m.trim().toLowerCase())
-    .includes(make.toLowerCase());
-}
 
 export async function getComparison(query: ComparisonQuery): Promise<ComparisonResult | null> {
   const service = await getServiceBySlug(query.serviceSlug);
@@ -42,8 +43,7 @@ export async function getComparison(query: ComparisonQuery): Promise<ComparisonR
   const { point, resolved } = postalCodeToLatLng(query.postalCode);
 
   const offers: Offer[] = workshops
-    // Brand workshops only for their own make: hide them when the user's car is another make.
-    .filter((w) => !w.isAuthorized || !query.make || isAuthorizedFor(w.authorizedMakes, query.make))
+    .filter((w) => shouldShowWorkshop(w, query.filter, query.make))
     .map((w) => {
       const tier = WorkshopTier.catch("KEDJA").parse(w.tier);
       return {
@@ -53,6 +53,9 @@ export async function getComparison(query: ComparisonQuery): Promise<ComparisonR
         tier,
         address: w.address,
         city: w.city,
+        lat: w.lat,
+        lng: w.lng,
+        authorizedMakes: w.authorizedMakes,
         phone: w.phone,
         website: w.website,
         estimate: estimatePrice(service, tier, query.priceClass),
@@ -66,7 +69,10 @@ export async function getComparison(query: ComparisonQuery): Promise<ComparisonR
   return {
     ...rankOffers(offers),
     postalCodeResolved: resolved,
+    origin: point,
     market: marketEstimate(service, query.priceClass),
+    makes: collectMakes(workshops),
+    dealerCountForMake: query.make ? workshops.filter((w) => isAuthorizedFor(w.authorizedMakes, query.make)).length : 0,
   };
 }
 

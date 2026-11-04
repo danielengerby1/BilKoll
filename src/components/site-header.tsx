@@ -10,7 +10,7 @@ const NAV = [
 export function SiteHeader() {
   return (
     <header className="border-b bg-card/80 backdrop-blur">
-      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
         <Link href="/" className="flex items-center gap-2 text-lg font-bold tracking-tight">
           <CircleCheckBig aria-hidden className="size-6 text-primary" />
           <span>

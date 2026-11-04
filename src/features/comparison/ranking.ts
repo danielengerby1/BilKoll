@@ -9,6 +9,10 @@ export type Offer = {
   tier: WorkshopTier;
   address: string;
   city: string;
+  lat: number;
+  lng: number;
+  /** "Volvo,Polestar" for brand workshops, null otherwise. */
+  authorizedMakes: string | null;
   phone: string | null;
   website: string | null;
   estimate: PriceEstimate;

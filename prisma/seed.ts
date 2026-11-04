@@ -7,8 +7,7 @@
  * user data such as QuoteAudit.
  */
 import { db } from "../src/server/db";
-import { ServiceCategory, WorkshopChain, WorkshopTier } from "../src/lib/domain";
-import { postalCodeToLatLng } from "../src/lib/geo";
+import { GeoPrecision, ServiceCategory, WorkshopChain, WorkshopTier } from "../src/lib/domain";
 import { SERVICES } from "./data/services";
 import { WORKSHOPS, WORKSHOPS_VERIFIED_AT } from "./data/workshops";
 
@@ -19,8 +18,6 @@ async function main() {
   }
 
   for (const w of WORKSHOPS) {
-    // Approximate position (postal-area centre) until addresses are geocoded.
-    const { point } = postalCodeToLatLng(w.postalCode);
     const data = {
       slug: w.slug,
       name: w.name,
@@ -30,8 +27,9 @@ async function main() {
       postalCode: w.postalCode,
       city: w.city,
       municipality: w.municipality,
-      lat: point.lat,
-      lng: point.lng,
+      lat: w.lat,
+      lng: w.lng,
+      geoPrecision: GeoPrecision.parse(w.geoPrecision),
       phone: w.phone ?? null,
       website: w.website ?? null,
       isAuthorized: Boolean(w.authorizedMakes),

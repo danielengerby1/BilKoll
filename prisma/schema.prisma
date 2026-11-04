@@ -68,9 +68,11 @@ model Workshop {
   municipality         String
   /// 5 digits, no space: "14175".
   postalCode           String
-  /// Approximate (postal-area centre) until we geocode addresses.
+  /// WGS84 position.
   lat                  Float
   lng                  Float
+  /// GeoPrecision: ADDRESS | STREET | POSTAL – how exact lat/lng is.
+  geoPrecision         String    @default("POSTAL")
   phone                String?
   website              String?
   /// Trust tier flags. Only true when verified against the official register.

@@ -15,7 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-dvh">
         <DemoBanner />
         <SiteHeader />
-        <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
+        <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
         <footer className="border-t py-6 text-center text-xs text-muted-foreground">
           BilKoll · Priser är uppskattningar inkl. moms · Råden är vägledning, ingen diagnos
         </footer>

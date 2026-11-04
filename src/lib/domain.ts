@@ -5,7 +5,7 @@ import { z } from "zod";
  * Validate with these schemas before writing to the database.
  */
 
-export const FuelType = z.enum(["BENSIN", "DIESEL", "EL", "HYBRID", "LADDHYBRID", "ETANOL", "GAS"]);
+export const FuelType = z.enum(["BENSIN", "DIESEL", "EL", "HYBRID", "LADDHYBRID", "ETANOL", "GAS", "OKAND"]);
 export type FuelType = z.infer<typeof FuelType>;
 
 export const FUEL_TYPE_LABEL_SV: Record<FuelType, string> = {
@@ -16,6 +16,7 @@ export const FUEL_TYPE_LABEL_SV: Record<FuelType, string> = {
   LADDHYBRID: "Laddhybrid",
   ETANOL: "Etanol",
   GAS: "Gas",
+  OKAND: "Okänt drivmedel",
 };
 
 export const Transmission = z.enum(["MANUELL", "AUTOMAT"]);
@@ -36,6 +37,7 @@ export const WorkshopChain = z.enum([
   "BILIA",
   "DIN_BIL",
   "HEDIN",
+  "VOLVO",
   "TESLA",
   "INDEPENDENT",
 ]);
@@ -50,7 +52,8 @@ export const WORKSHOP_CHAIN_LABEL_SV: Record<WorkshopChain, string> = {
   OKQ8: "OKQ8 Bilverkstad",
   BILIA: "Bilia",
   DIN_BIL: "Din Bil",
-  HEDIN: "Hedin Bil",
+  HEDIN: "Hedin Automotive",
+  VOLVO: "Volvo Car",
   TESLA: "Tesla",
   INDEPENDENT: "Fristående",
 };
@@ -76,6 +79,9 @@ export const TIER_ESTIMATE: Record<WorkshopTier, { rateSek: { min: number; max: 
   KEDJA: { rateSek: { min: 1400, max: 1850 }, parts: { min: 0.95, max: 1.15 } },
   FRISTAENDE: { rateSek: { min: 1200, max: 1700 }, parts: { min: 0.85, max: 1.1 } },
 };
+
+export const GeoPrecision = z.enum(["ADDRESS", "STREET", "POSTAL"]);
+export type GeoPrecision = z.infer<typeof GeoPrecision>;
 
 /** Premium cars: more expensive parts and slightly longer jobs. */
 export const PriceClass = z.enum(["STANDARD", "PREMIUM"]);
@@ -122,6 +128,16 @@ export const SORT_MODE_LABEL_SV: Record<SortMode, string> = {
   BAST_VARDE: "Bäst värde",
   LAGST_PRIS: "Lägst uppskattat pris",
   NARMAST: "Närmast",
+};
+
+/** Workshop-type filter on "Hitta verkstad". */
+export const WorkshopFilter = z.enum(["ALLA", "OBEROENDE", "MARKE"]);
+export type WorkshopFilter = z.infer<typeof WorkshopFilter>;
+
+export const WORKSHOP_FILTER_LABEL_SV: Record<WorkshopFilter, string> = {
+  ALLA: "Alla",
+  OBEROENDE: "Kedjor & fristående",
+  MARKE: "Märkesverkstäder",
 };
 
 /** Posted hourly rates in Stockholms län, SEK incl. moms. */

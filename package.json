@@ -2,7 +2,7 @@
   "name": "bilkoll",
   "version": "0.1.0",
   "private": true,
-  "description": "BilKoll \u2013 Skyscanner f\u00f6r bilverkst\u00e4der + AI-mekaniker. J\u00e4mf\u00f6r priser, granska offerter och f\u00e5 svar p\u00e5 bilfr\u00e5gor.",
+  "description": "BilKoll – Skyscanner för bilverkstäder + AI-mekaniker. Jämför priser, granska offerter och få svar på bilfrågor.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -31,6 +31,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.68.0",
+    "maplibre-gl": "^5.24.0",
     "next": "^15.5.29",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
