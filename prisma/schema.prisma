@@ -1,0 +1,177 @@
+// BilKoll – Prisma schema
+//
+// Conventions (see CLAUDE.md):
+// - Money: whole SEK as Int, ALWAYS including 25 % moms. Field suffix `Sek`.
+// - "Enum" columns are String and validated by the Zod schemas in
+//   src/lib/domain.ts, so SQLite (dev) and PostgreSQL/Supabase (prod) work the
+//   same way. They can become native Postgres enums when we migrate.
+// - Swedish domain terms are kept where they are the actual concept
+//   (regnr, besiktning, Godkänd Bilverkstad); everything else is English.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["queryCompiler", "driverAdapters"]
+  engineType      = "client"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// A car resolved from a Swedish registration number.
+/// Cache of the Transportstyrelsen / Biluppgifter lookup.
+model Vehicle {
+  id             String    @id @default(cuid())
+  /// Normalised: uppercase, no space. "ABC123" or "ABC12D".
+  regnr          String    @unique
+  make           String
+  model          String
+  /// Trim / engine variant as marketed, e.g. "D4", "1.4 TSI", "Long Range".
+  variant        String?
+  year           Int
+  /// FuelType: BENSIN | DIESEL | EL | HYBRID | LADDHYBRID | ETANOL | GAS
+  fuelType       String
+  /// Transmission: MANUELL | AUTOMAT
+  transmission   String?
+  engineCode     String?
+  /// Next mandatory besiktning deadline (sista dag).
+  nextInspection DateTime?
+  /// Which adapter resolved this record ("mock", "biluppgifter", ...).
+  dataSource     String    @default("mock")
+  fetchedAt      DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  quoteAudits QuoteAudit[]
+  bookings    BookingRequest[]
+}
+
+model Workshop {
+  id                   String    @id @default(cuid())
+  name                 String
+  /// WorkshopChain: MEKONOMEN | MECA | AUTOEXPERTEN | SPEEDY | BILIA | HEDIN | VOLVO | INDEPENDENT ...
+  chain                String    @default("INDEPENDENT")
+  address              String
+  /// Postort, e.g. "Kungens Kurva", "Solna", "Nacka".
+  city                 String
+  /// Municipality (kommun) – used for "within Stockholm stad" style filters.
+  municipality         String
+  /// 5 digits, no space: "14175".
+  postalCode           String
+  lat                  Float
+  lng                  Float
+  phone                String?
+  website              String?
+  /// Trust tier flags (shown as badges in the comparison table).
+  isGodkandBilverkstad Boolean   @default(false)
+  isMrf                Boolean   @default(false)
+  /// Auktoriserad märkesverkstad.
+  isAuthorized         Boolean   @default(false)
+  /// Makes the workshop is authorised for, comma-separated ("Volvo,Polestar").
+  authorizedMakes      String?
+  /// Posted hourly rate, SEK incl. moms.
+  hourlyRateSek        Int
+  /// 1.0 – 5.0
+  rating               Float
+  reviewCount          Int       @default(0)
+  /// Earliest bookable slot ("tidigaste tid"). Mocked until booking integration.
+  nextAvailableAt      DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  prices   WorkshopServicePrice[]
+  bookings BookingRequest[]
+
+  @@index([municipality])
+  @@index([postalCode])
+}
+
+/// Catalogue of standard, comparable jobs.
+model StandardService {
+  id             String   @id @default(cuid())
+  /// e.g. "bas-service", "bromsar-fram", "hjulskifte", "batteribyte", "felsokning"
+  slug           String   @unique
+  titleSv        String
+  descriptionSv  String?
+  /// ServiceCategory: SERVICE | BROMSAR | DACK | ELSYSTEM | DIAGNOS
+  category       String
+  /// Book time ("normaltid") in hours for an average car. Used by the quote auditor.
+  estimatedHours Float
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  prices   WorkshopServicePrice[]
+  bookings BookingRequest[]
+}
+
+/// A workshop's price for one standard service.
+/// Total shown to the user = fixedPriceSek + partsPriceSek (computed, not stored).
+model WorkshopServicePrice {
+  id            String          @id @default(cuid())
+  workshopId    String
+  workshop      Workshop        @relation(fields: [workshopId], references: [id], onDelete: Cascade)
+  serviceId     String
+  service       StandardService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  /// Arbetskostnad – fixed labour price, SEK incl. moms.
+  fixedPriceSek Int
+  /// Materialkostnad – parts/consumables, SEK incl. moms.
+  partsPriceSek Int
+  /// Optional note shown in the breakdown, e.g. "Inkl. miljöavgift".
+  noteSv        String?
+  updatedAt     DateTime        @updatedAt
+
+  @@unique([workshopId, serviceId])
+  @@index([serviceId])
+}
+
+/// Result of the "BS-detector": a user-submitted workshop quote, audited.
+model QuoteAudit {
+  id                String   @id @default(cuid())
+  regnr             String?
+  vehicle           Vehicle? @relation(fields: [regnr], references: [regnr], onDelete: SetNull)
+  /// Free text or StandardService.slug when it matches one.
+  serviceType       String
+  /// Raw pasted quote text, kept for re-audits.
+  rawText           String?
+  quotedHours       Float?
+  quotedLaborSek    Int
+  quotedPartsSek    Int
+  /// Benchmark used for the verdict (snapshot, so later price changes don't rewrite history).
+  benchmarkHours    Float?
+  benchmarkTotalSek Int?
+  /// AuditVerdict: RIMLIGT | NAGOT_HOGT | FOR_HOGT | MISSTANKT_MERFORSALJNING
+  verdict           String
+  adviceSv          String
+  /// Which AI model produced the advice (traceability).
+  aiModel           String?
+  createdAt         DateTime @default(now())
+
+  @@index([regnr])
+}
+
+/// A booking request sent to a workshop for a standard service.
+/// Until real booking integrations exist, the workshop confirms manually.
+model BookingRequest {
+  id              String          @id @default(cuid())
+  workshopId      String
+  workshop        Workshop        @relation(fields: [workshopId], references: [id], onDelete: Cascade)
+  serviceId       String
+  service         StandardService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  regnr           String?
+  vehicle         Vehicle?        @relation(fields: [regnr], references: [regnr], onDelete: SetNull)
+  customerName    String
+  customerEmail   String
+  customerPhone   String?
+  preferredDate   DateTime
+  messageSv       String?
+  /// Price snapshot at booking time (arbetskostnad + materialkostnad), SEK incl. moms.
+  quotedTotalSek  Int
+  /// BookingStatus: SKICKAD | BEKRAFTAD | AVBOKAD
+  status          String          @default("SKICKAD")
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([workshopId])
+  @@index([regnr])
+}
