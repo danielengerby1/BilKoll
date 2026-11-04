@@ -165,7 +165,8 @@ export function WorkshopMap({ points, origin, showOrigin, selectedId, onSelect, 
 
   return (
     <div className={cn("relative overflow-hidden rounded-2xl border shadow-sm", className)}>
-      <div ref={container} className="absolute inset-0" />
+      {/* size-full as well: maplibre-gl.css (unlayered) overrides Tailwind's position utilities with position: relative. */}
+      <div ref={container} className="absolute inset-0 size-full" />
       <div className="absolute right-3 top-3 flex flex-col overflow-hidden rounded-xl border border-white/60 bg-white/75 shadow-md backdrop-blur-md">
         <button type="button" onClick={() => zoom(1)} aria-label="Zooma in" className="grid size-10 place-items-center hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <Plus aria-hidden className="size-4" />
