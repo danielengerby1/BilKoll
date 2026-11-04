@@ -22,7 +22,8 @@ export function pgConfig(url: string): { connectionString: string; ssl?: { rejec
 }
 
 function createClient(): PrismaClient {
-  const url = process.env.DATABASE_URL;
+  // DATABASE_URL, or the names Vercel's Supabase integration creates.
+  const url = process.env.DATABASE_URL ?? process.env.POSTGRES_PRISMA_URL ?? process.env.POSTGRES_URL;
   if (!url) throw new Error("DATABASE_URL is not set");
   return new PrismaClient({ adapter: new PrismaPg(pgConfig(url)) });
 }
