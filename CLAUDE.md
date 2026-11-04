@@ -8,7 +8,7 @@ The core promise is that the user does not get overcharged ("bli lurad på verks
 - Next.js 15 (App Router, Server Components, Server Actions), TypeScript `strict`
 - Tailwind CSS v4 + shadcn/ui (new-york, files in `src/components/ui`) + lucide-react
 - Prisma 6 with the Rust-free query compiler + `@prisma/adapter-pg` (`engineType = "client"`). PostgreSQL everywhere: Supabase in prod, any Postgres locally. `DATABASE_URL` = pooled (runtime), `DIRECT_URL` = direct (migrations).
-- Hosted on Vercel. The `vercel-build` script runs `prisma migrate deploy` + the idempotent seed before `next build`.
+- Hosted on Vercel (project `bilkoll`, team green-star1). Database: Supabase project `imioadahjplmmcofqtbz` (eu-west-1).
 - Zod 4 for every boundary (form input, Server Action args, AI output, external APIs)
 - Anthropic SDK behind the provider-agnostic `AIService` (`src/server/ai`)
 - Vitest for unit tests
@@ -28,6 +28,13 @@ The core promise is that the user does not get overcharged ("bli lurad på verks
 
 First run: `cp .env.example .env` (point it at a Postgres/Supabase DB) `&& npm i && npx prisma migrate deploy && npm run db:seed && npm run dev`
 Seed is idempotent (upserts by slug) and never deletes user data.
+
+## Database (Supabase)
+- The app connects through the Supabase **transaction pooler** as the least-privilege role `bilkoll_app` (DML only on the app tables). `DATABASE_URL` / `DIRECT_URL` are set in Vercel as sensitive env vars – never commit them.
+- RLS is enabled on every table and `anon`/`authenticated` have no grants, so Supabase's Data API exposes nothing. New tables must get the same treatment (`ENABLE ROW LEVEL SECURITY`, `REVOKE ALL ... FROM anon, authenticated`, a `bilkoll_app` policy + grant).
+- Schema changes: add a Prisma migration in `prisma/migrations/`, then apply the same SQL in Supabase (as a migration) and insert the row into `_prisma_migrations` (sha256 checksum of `migration.sql`), so `prisma migrate deploy` stays in sync. Run `get_advisors` (security) afterwards.
+- Seed changes: edit `prisma/data/*.ts`, then `npx tsx scripts/seed-sql.ts` prints idempotent upsert SQL to run in Supabase.
+- Vercel builds don't touch the database (`scripts/vercel-build.sh`) unless `RUN_DB_MIGRATIONS=1` with a privileged `DIRECT_URL`.
 
 ## Project layout
 ```
