@@ -1,30 +1,35 @@
 import Link from "next/link";
-import { AlertTriangle, Clock, MapPin, Star, ThumbsUp, TrendingDown, Zap } from "lucide-react";
+import { ExternalLink, MapPin, Phone, ScanSearch, ThumbsUp, TrendingDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
-import { formatSlotSv } from "@/lib/dates";
+import { WORKSHOP_CHAIN_LABEL_SV, WORKSHOP_TIER_LABEL_SV } from "@/lib/domain";
 import { formatSek } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import type { RankedOffer } from "../ranking";
 import { TrustBadges } from "./trust-badges";
 
-export type OfferHighlight = "BAST_VARDE" | "BILLIGAST" | "TIDIGAST" | "NARMAST";
+export type OfferHighlight = "BAST_VARDE" | "BILLIGAST" | "NARMAST";
 
 const HIGHLIGHT: Record<OfferHighlight, { label: string; icon: typeof ThumbsUp }> = {
   BAST_VARDE: { label: "Bäst värde", icon: ThumbsUp },
-  BILLIGAST: { label: "Billigast", icon: TrendingDown },
-  TIDIGAST: { label: "Tidigast tid", icon: Zap },
+  BILLIGAST: { label: "Lägst uppskattat pris", icon: TrendingDown },
   NARMAST: { label: "Närmast", icon: MapPin },
 };
 
 type Props = {
   offer: RankedOffer;
   highlights: readonly OfferHighlight[];
-  bookHref: string;
+  compareHref: string;
 };
 
-export function OfferCard({ offer, highlights, bookHref }: Props) {
+export function OfferCard({ offer, highlights, compareHref }: Props) {
+  const { estimate } = offer;
   const isBest = highlights.includes("BAST_VARDE");
+  const typeLabel =
+    offer.chain === "INDEPENDENT"
+      ? WORKSHOP_TIER_LABEL_SV[offer.tier]
+      : `${WORKSHOP_TIER_LABEL_SV[offer.tier]} · ${WORKSHOP_CHAIN_LABEL_SV[offer.chain]}`;
+
   return (
     <article
       className={cn(
@@ -32,7 +37,7 @@ export function OfferCard({ offer, highlights, bookHref }: Props) {
         isBest && "border-primary ring-1 ring-primary",
       )}
     >
-      <div className="grid gap-2">
+      <div className="grid content-start gap-2">
         {highlights.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {highlights.map((h) => {
@@ -50,17 +55,20 @@ export function OfferCard({ offer, highlights, bookHref }: Props) {
             {offer.workshopName}
           </Link>
         </h3>
+        <p className="text-sm text-muted-foreground">{typeLabel}</p>
         <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
           <span className="flex items-center gap-1">
-            <MapPin aria-hidden className="size-4" /> {offer.city} · {offer.distanceKm.toLocaleString("sv-SE")} km
+            <MapPin aria-hidden className="size-4" /> {offer.address}, {offer.city} · ca {offer.distanceKm.toLocaleString("sv-SE")} km
           </span>
-          <span className="flex items-center gap-1">
-            <Star aria-hidden className="size-4 fill-warning text-warning" /> {offer.rating.toLocaleString("sv-SE")} ({offer.reviewCount} omdömen)
-          </span>
-          {offer.nextAvailableAt && (
-            <span className="flex items-center gap-1">
-              <Clock aria-hidden className="size-4" /> Tidigast {formatSlotSv(offer.nextAvailableAt)}
-            </span>
+          {offer.phone && (
+            <a href={`tel:${offer.phone.replace(/[^\d+]/g, "")}`} className="flex items-center gap-1 hover:text-foreground hover:underline">
+              <Phone aria-hidden className="size-4" /> {offer.phone}
+            </a>
+          )}
+          {offer.website && (
+            <a href={offer.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-foreground hover:underline">
+              <ExternalLink aria-hidden className="size-4" /> Webbplats
+            </a>
           )}
         </p>
         <TrustBadges
@@ -70,29 +78,27 @@ export function OfferCard({ offer, highlights, bookHref }: Props) {
         />
         <dl className="grid w-fit grid-cols-[auto_auto] gap-x-6 gap-y-0.5 text-sm">
           <dt className="text-muted-foreground">Arbetskostnad</dt>
-          <dd className="text-right tabular-nums">{formatSek(offer.laborSek)}</dd>
+          <dd className="text-right tabular-nums">
+            {formatSek(estimate.laborSek.low)}–{formatSek(estimate.laborSek.high)}
+          </dd>
           <dt className="text-muted-foreground">Materialkostnad</dt>
-          <dd className="text-right tabular-nums">{formatSek(offer.partsSek)}</dd>
-          <dt className="text-muted-foreground">Timpris</dt>
-          <dd className="text-right tabular-nums">{formatSek(offer.hourlyRateSek)}/h</dd>
+          <dd className="text-right tabular-nums">
+            {estimate.partsSek.high === 0 ? "–" : `${formatSek(estimate.partsSek.low)}–${formatSek(estimate.partsSek.high)}`}
+          </dd>
         </dl>
-        {offer.noteSv && <p className="text-xs text-muted-foreground">{offer.noteSv}</p>}
       </div>
 
-      <div className="flex flex-col items-start gap-2 md:items-end md:text-right">
-        <p className="text-3xl font-bold tabular-nums">{formatSek(offer.totalSek)}</p>
-        <p className="text-xs text-muted-foreground">totalt inkl. moms</p>
-        {offer.savingVsMedianSek > 0 && (
-          <p className="text-sm font-medium text-success">{formatSek(offer.savingVsMedianSek)} under medianpriset</p>
-        )}
-        {offer.isPriceOutlier && (
-          <p className="flex items-center gap-1 text-sm font-medium text-destructive">
-            <AlertTriangle aria-hidden className="size-4" /> Klart dyrare än övriga
-          </p>
-        )}
+      <div className="flex flex-col items-start gap-1 md:items-end md:text-right">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Uppskattat pris</p>
+        <p className="text-2xl font-bold tabular-nums">
+          {formatSek(estimate.lowSek)}–{formatSek(estimate.highSek)}
+        </p>
+        <p className="text-sm text-muted-foreground">
+          typiskt ca <strong className="text-foreground">{formatSek(estimate.typicalSek)}</strong> inkl. moms
+        </p>
         <p className="text-xs text-muted-foreground">Värdepoäng {offer.valueScore}/100</p>
-        <Link href={bookHref} className={cn(buttonVariants({ size: "lg" }), "mt-auto w-full md:w-auto")}>
-          Boka tid
+        <Link href={compareHref} className={cn(buttonVariants({ size: "lg" }), "mt-3 w-full md:w-auto")}>
+          <ScanSearch aria-hidden /> Jämför din offert
         </Link>
       </div>
     </article>

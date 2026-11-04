@@ -12,11 +12,13 @@ import { AuditResult } from "./audit-result";
 
 type Props = {
   services: readonly { slug: string; titleSv: string }[];
+  workshops: readonly { id: string; name: string; city: string }[];
   defaultRegnr?: string;
   defaultService?: string;
+  defaultWorkshopId?: string;
 };
 
-export function QuoteForm({ services, defaultRegnr, defaultService }: Props) {
+export function QuoteForm({ services, workshops, defaultRegnr, defaultService, defaultWorkshopId }: Props) {
   const [state, action, pending] = useActionState(auditQuoteAction, null);
   const [serviceSlug, setServiceSlug] = useState(defaultService ?? services[0]?.slug ?? "");
 
@@ -37,6 +39,17 @@ export function QuoteForm({ services, defaultRegnr, defaultService }: Props) {
               {services.map((s) => (
                 <option key={s.slug} value={s.slug}>
                   {s.titleSv}
+                </option>
+              ))}
+            </NativeSelect>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="workshopId">Vilken verkstad gav offerten?</Label>
+            <NativeSelect id="workshopId" name="workshopId" defaultValue={defaultWorkshopId ?? ""}>
+              <option value="">Annan / vet inte – jämför med Stockholms standardpris</option>
+              {workshops.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name} ({w.city})
                 </option>
               ))}
             </NativeSelect>
@@ -73,7 +86,7 @@ export function QuoteForm({ services, defaultRegnr, defaultService }: Props) {
           </p>
         )}
         <Button type="submit" size="lg" disabled={pending}>
-          <ScanSearch aria-hidden /> {pending ? "Granskar…" : "Granska offerten"}
+          <ScanSearch aria-hidden /> {pending ? "Jämför…" : "Jämför med BilKolls pris"}
         </Button>
       </form>
 

@@ -1,63 +1,44 @@
 import { describe, expect, it } from "vitest";
-import { auditQuote, computeFairRange, findUpsellKeywords, mergeVerdicts } from "@/features/quote-audit/audit";
+import { auditQuote, findUpsellKeywords } from "@/features/quote-audit/audit";
 import { detectSafetyTopics } from "@/features/ai-mechanic/safety";
+import { estimatePrice } from "@/lib/estimate";
 
-const brakesBench = {
-  estimatedHours: 1.3,
-  marketTotalsSek: [3300, 3800, 4000, 4200, 4600, 5900],
-  marketPartsSek: [1800, 1900, 2000],
-};
+const chainBrakes = estimatePrice({ estimatedHours: 1.3, typicalPartsSek: 1900 }, "KEDJA"); // 3630–4600
 
 describe("auditQuote", () => {
-  it("rates a market-level quote as reasonable", () => {
-    const r = auditQuote({ quotedHours: 1.3, quotedLaborSek: 2100, quotedPartsSek: 1900, rawText: null }, brakesBench);
-    expect(r.verdict).toBe("RIMLIGT");
-    expect(r.benchmarkTotalSek).toBe(4100);
-    expect(r.quotedTotalSek).toBe(4000);
+  it("rates a quote inside the estimate as Bra värde", () => {
+    const r = auditQuote({ quotedHours: 1.3, quotedLaborSek: 2100, quotedPartsSek: 1900, rawText: null }, chainBrakes);
+    expect(r.verdict).toBe("BRA_VARDE");
+    expect(r.suspectedUpsell).toBe(false);
+    expect(r.findings).toEqual([]);
   });
 
-  it("rates a moderately high quote as NAGOT_HOGT", () => {
-    const r = auditQuote({ quotedHours: 1.3, quotedLaborSek: 2900, quotedPartsSek: 2100, rawText: null }, brakesBench);
-    expect(r.verdict).toBe("NAGOT_HOGT");
+  it("rates a cheap quote as Billigt and asks to check what's included", () => {
+    const r = auditQuote({ quotedHours: 1, quotedLaborSek: 1500, quotedPartsSek: 1200, rawText: null }, chainBrakes);
+    expect(r.verdict).toBe("BILLIGT");
+    expect(r.findings.map((f) => f.code)).toContain("BELOW_ESTIMATE");
   });
 
-  it("rates a very high quote as FOR_HOGT", () => {
-    const r = auditQuote({ quotedHours: 1.5, quotedLaborSek: 3500, quotedPartsSek: 3500, rawText: null }, brakesBench);
-    expect(r.verdict).toBe("FOR_HOGT");
-    expect(r.findings.map((f) => f.code)).toContain("PARTS_ABOVE_MARKET");
-    expect(r.findings.map((f) => f.code)).toContain("HOURLY_RATE_ABOVE_BAND");
+  it("rates an expensive quote as Dyrt with reasons", () => {
+    const r = auditQuote({ quotedHours: 1.5, quotedLaborSek: 3500, quotedPartsSek: 3500, rawText: null }, chainBrakes);
+    expect(r.verdict).toBe("DYRT");
+    const codes = r.findings.map((f) => f.code);
+    expect(codes).toContain("PARTS_ABOVE_ESTIMATE");
+    expect(codes).toContain("HOURLY_RATE_ABOVE_BAND");
   });
 
-  it("flags padded hours plus a higher price as suspected upsell", () => {
-    const r = auditQuote({ quotedHours: 3, quotedLaborSek: 3000, quotedPartsSek: 1900, rawText: null }, brakesBench);
-    expect(r.verdict).toBe("MISSTANKT_MERFORSALJNING");
+  it("flags padded hours as suspected upsell", () => {
+    const r = auditQuote({ quotedHours: 3, quotedLaborSek: 3000, quotedPartsSek: 1900, rawText: null }, chainBrakes);
+    expect(r.suspectedUpsell).toBe(true);
   });
 
-  it("flags upsell keywords in the quote text", () => {
+  it("flags upsell keywords even when the total is fine", () => {
     const r = auditQuote(
-      { quotedHours: 1.5, quotedLaborSek: 2600, quotedPartsSek: 2200, rawText: "Bromsar fram. Rekommenderas: motorrengöring" },
-      brakesBench,
+      { quotedHours: 1.3, quotedLaborSek: 2100, quotedPartsSek: 1900, rawText: "Bromsar fram. Rekommenderas: motorrengöring" },
+      chainBrakes,
     );
-    expect(r.verdict).toBe("MISSTANKT_MERFORSALJNING");
-  });
-
-  it("works without a benchmark", () => {
-    const r = auditQuote({ quotedHours: 1, quotedLaborSek: 1500, quotedPartsSek: 0, rawText: null }, null);
-    expect(r.verdict).toBe("RIMLIGT");
-    expect(r.benchmarkTotalSek).toBeNull();
-    expect(r.findings.map((f) => f.code)).toContain("NO_BENCHMARK");
-  });
-
-  it("computes the fair range from book time × rate band + parts", () => {
-    expect(computeFairRange(brakesBench)).toEqual({ low: 1560 + 1900, high: 2860 + 1900, typical: 2145 + 1900 });
-  });
-});
-
-describe("mergeVerdicts", () => {
-  it("lets AI escalate but never soften", () => {
-    expect(mergeVerdicts("RIMLIGT", "MISSTANKT_MERFORSALJNING")).toBe("MISSTANKT_MERFORSALJNING");
-    expect(mergeVerdicts("FOR_HOGT", "RIMLIGT")).toBe("FOR_HOGT");
-    expect(mergeVerdicts("NAGOT_HOGT", null)).toBe("NAGOT_HOGT");
+    expect(r.verdict).toBe("BRA_VARDE");
+    expect(r.suspectedUpsell).toBe(true);
   });
 });
 

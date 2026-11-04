@@ -84,12 +84,14 @@ export function createMockAIService(): AIService {
       return { ...answer, suggestedServiceSlug: known ? answer.suggestedServiceSlug : null };
     },
     async explainQuote(input) {
-      const lines = input.findingsSv.length
-        ? input.findingsSv
-        : ["Offerten ligger i linje med vad verkstäder i Stockholm brukar ta för jobbet."];
+      const lead: Record<typeof input.verdict, string> = {
+        BILLIGT: "Offerten ligger under vår uppskattning – bra för plånboken, men kontrollera vad som ingår.",
+        BRA_VARDE: "Offerten ligger inom vår uppskattning för den här typen av verkstad. Det ser prisvärt ut.",
+        DYRT: "Offerten ligger över vår uppskattning. Fråga vad som ingår och jämför gärna med en annan verkstad.",
+      };
       return {
-        adviceSv: lines.join(" "),
-        verdict: null,
+        adviceSv: lead[input.verdict],
+        suspectedUpsell: false,
         questionsToAskSv: [
           "Kan ni specificera vilka delar som ingår och vad de kostar styck?",
           "Vilka av punkterna måste göras nu och vilka kan vänta?",

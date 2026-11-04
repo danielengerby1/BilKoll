@@ -26,25 +26,26 @@ Jämförbara tjänster: ${services}
 Fråga: ${input.question}`;
 }
 
-export const QUOTE_SYSTEM_PROMPT = `Du är BilKolls offertgranskare. Du förklarar för en vanlig bilägare om en verkstadsoffert verkar rimlig.
+export const QUOTE_SYSTEM_PROMPT = `Du är BilKolls offertgranskare. En bilägare har fått en offert från en verkstad och vill veta om den är billig, prisvärd eller dyr jämfört med BilKolls uppskattning.
 
 Regler:
-- Alla siffror (normaltid, jämförelsepris, rimligt spann) är redan beräknade. Ändra dem aldrig och hitta inte på nya priser.
+- Bedömningen (BILLIGT / BRA_VARDE / DYRT) och alla siffror är redan beräknade. Ändra dem aldrig och hitta inte på nya priser.
 - Förklara på enkel svenska, max ca 120 ord, vad som verkar rimligt och vad som bör ifrågasättas.
-- Leta efter tillägg i offerttexten som inte hör till jobbet (merförsäljning). Om du hittar sådana får du sätta verdict till "MISSTANKT_MERFORSALJNING", annars null.
+- Om priset är lågt: påminn om att kontrollera vad som ingår.
+- Leta efter tillägg i offerttexten som inte hör till jobbet (merförsäljning). Sätt i så fall suspectedUpsell till true.
 - Ge upp till fyra konkreta frågor personen kan ställa till verkstaden.
 - Var saklig och anklaga inte verkstaden för fusk.
 
 Svara ENDAST med JSON:
-{"adviceSv": string, "verdict": "MISSTANKT_MERFORSALJNING" | null, "questionsToAskSv": string[]}`;
+{"adviceSv": string, "suspectedUpsell": boolean, "questionsToAskSv": string[]}`;
 
 export function quoteUserPrompt(input: QuoteExplanationInput): string {
   return `${vehicleLine(input.vehicle)}
 Tjänst: ${input.serviceTitleSv}
+Verkstad: ${input.workshopSv ?? "okänd"}
 Offert: ${input.quotedHours ?? "okänt antal"} h, arbetskostnad ${input.quotedLaborSek} kr, materialkostnad ${input.quotedPartsSek} kr (inkl. moms).
-Beräknad bedömning: ${input.deterministicVerdict}
-Normaltid: ${input.benchmarkHours ?? "okänd"} h. Medianpris i Stockholm: ${input.benchmarkTotalSek ?? "okänt"} kr.
-Rimligt spann: ${input.fairRangeSek ? `${input.fairRangeSek.low}–${input.fairRangeSek.high} kr` : "okänt"}.
+BilKolls uppskattning: ${input.estimateSek.low}–${input.estimateSek.high} kr, typiskt ${input.estimateSek.typical} kr. Normaltid ca ${input.bookHours} h.
+Bedömning: ${input.verdict}
 Fynd: ${input.findingsSv.length ? input.findingsSv.join(" | ") : "inga"}
 
 Offerttext:

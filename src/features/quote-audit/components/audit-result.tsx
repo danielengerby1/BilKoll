@@ -1,44 +1,49 @@
 import Link from "next/link";
-import { HelpCircle, Search } from "lucide-react";
+import { HelpCircle, Search, ShieldAlert } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { formatSek } from "@/lib/money";
 import type { AuditResponse } from "../server/actions";
+import { RangeMeter } from "./range-meter";
 import { VerdictBadge } from "./verdict-badge";
 
+function diffText(pct: number): string {
+  if (pct === 0) return "samma som vårt typiska pris";
+  return `${Math.abs(pct)} % ${pct > 0 ? "över" : "under"} vårt typiska pris`;
+}
+
 export function AuditResult({ result, serviceSlug }: { result: AuditResponse; serviceSlug: string }) {
+  const { estimate } = result;
   return (
     <Card aria-live="polite">
       <CardHeader className="gap-3">
-        <p className="text-sm text-muted-foreground">Bedömning av offert för {result.serviceTitleSv}</p>
-        <VerdictBadge verdict={result.verdict} />
+        <p className="text-sm text-muted-foreground">
+          {result.serviceTitleSv}
+          {result.workshopName ? ` hos ${result.workshopName}` : ""} – jämfört med {result.comparedWithSv}
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <VerdictBadge verdict={result.verdict} />
+          <p className="text-sm">
+            <strong className="tabular-nums">{formatSek(result.quotedTotalSek)}</strong> är {diffText(result.diffFromTypicalPct)}
+          </p>
+        </div>
       </CardHeader>
       <CardContent className="grid gap-5">
-        <dl className="grid gap-3 rounded-lg bg-muted p-4 text-sm sm:grid-cols-3">
-          <div>
-            <dt className="text-muted-foreground">Din offert</dt>
-            <dd className="text-xl font-bold tabular-nums">{formatSek(result.quotedTotalSek)}</dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Medianpris i Stockholm</dt>
-            <dd className="text-xl font-bold tabular-nums">
-              {result.benchmarkTotalSek !== null ? formatSek(result.benchmarkTotalSek) : "–"}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Rimligt spann</dt>
-            <dd className="text-xl font-bold tabular-nums">
-              {result.fairRangeSek ? `${formatSek(result.fairRangeSek.low)}–${formatSek(result.fairRangeSek.high)}` : "–"}
-            </dd>
-          </div>
-          {result.benchmarkHours !== null && (
-            <p className="text-xs text-muted-foreground sm:col-span-3">
-              Normaltid {result.benchmarkHours.toLocaleString("sv-SE")} h
-              {result.effectiveHourlyRateSek !== null && ` · ditt timpris ${formatSek(result.effectiveHourlyRateSek)}/h`} · alla
-              belopp inkl. moms
-            </p>
-          )}
-        </dl>
+        <RangeMeter
+          lowSek={estimate.lowSek}
+          typicalSek={estimate.typicalSek}
+          highSek={estimate.highSek}
+          quotedSek={result.quotedTotalSek}
+        />
+
+        {result.suspectedUpsell && (
+          <Alert variant="warning">
+            <ShieldAlert aria-hidden />
+            <AlertTitle>Möjlig merförsäljning</AlertTitle>
+            <AlertDescription>Offerten verkar innehålla mer än jobbet du frågade efter. Fråga vad som verkligen behövs.</AlertDescription>
+          </Alert>
+        )}
 
         <p className="leading-relaxed">{result.adviceSv}</p>
 
@@ -49,6 +54,24 @@ export function AuditResult({ result, serviceSlug }: { result: AuditResponse; se
             ))}
           </ul>
         )}
+
+        <dl className="grid gap-x-6 gap-y-1 rounded-lg bg-muted p-4 text-sm sm:grid-cols-2">
+          <dt className="text-muted-foreground">Uppskattad arbetskostnad</dt>
+          <dd className="tabular-nums sm:text-right">
+            {formatSek(estimate.laborSek.low)}–{formatSek(estimate.laborSek.high)} (ca {estimate.hours.toLocaleString("sv-SE")} h)
+          </dd>
+          <dt className="text-muted-foreground">Uppskattad materialkostnad</dt>
+          <dd className="tabular-nums sm:text-right">
+            {estimate.partsSek.high === 0 ? "–" : `${formatSek(estimate.partsSek.low)}–${formatSek(estimate.partsSek.high)}`}
+          </dd>
+          {result.effectiveHourlyRateSek !== null && (
+            <>
+              <dt className="text-muted-foreground">Timpris i din offert</dt>
+              <dd className="tabular-nums sm:text-right">{formatSek(result.effectiveHourlyRateSek)}/h</dd>
+            </>
+          )}
+          <p className="text-xs text-muted-foreground sm:col-span-2">Alla belopp inkl. moms. Uppskattningen gäller en genomsnittlig bil.</p>
+        </dl>
 
         {result.questionsToAskSv.length > 0 && (
           <section className="rounded-lg border p-4">
@@ -63,13 +86,13 @@ export function AuditResult({ result, serviceSlug }: { result: AuditResponse; se
           </section>
         )}
 
-        {result.verdict !== "RIMLIGT" && (
-          <Link href={`/jamfor?tjanst=${serviceSlug}`} className={buttonVariants({ size: "lg" })}>
-            <Search aria-hidden /> Se billigare verkstäder för samma jobb
+        {result.verdict === "DYRT" && (
+          <Link href={`/jamfor?tjanst=${serviceSlug}&sortera=LAGST_PRIS`} className={buttonVariants({ size: "lg" })}>
+            <Search aria-hidden /> Hitta verkstäder med lägre uppskattat pris
           </Link>
         )}
         <p className="text-xs text-muted-foreground">
-          Vägledning, inte en garanti. Priset kan påverkas av bilmodell och delar. Granskning {result.id.slice(-6)} ·{" "}
+          Vägledning, inte en garanti. Granskning {result.id.slice(-6)} ·{" "}
           {result.aiModel === "deterministic" ? "regelbaserad" : `förklarad av ${result.aiModel}`}
         </p>
       </CardContent>

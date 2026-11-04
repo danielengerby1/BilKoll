@@ -31,12 +31,59 @@ export const WorkshopChain = z.enum([
   "MECA",
   "AUTOEXPERTEN",
   "SPEEDY",
+  "BOSCH",
+  "OKQ8",
   "BILIA",
+  "DIN_BIL",
   "HEDIN",
-  "VOLVO",
+  "TESLA",
   "INDEPENDENT",
 ]);
 export type WorkshopChain = z.infer<typeof WorkshopChain>;
+
+export const WORKSHOP_CHAIN_LABEL_SV: Record<WorkshopChain, string> = {
+  MEKONOMEN: "Mekonomen",
+  MECA: "MECA",
+  AUTOEXPERTEN: "Autoexperten",
+  SPEEDY: "Speedy Bilservice",
+  BOSCH: "Bosch Car Service",
+  OKQ8: "OKQ8 Bilverkstad",
+  BILIA: "Bilia",
+  DIN_BIL: "Din Bil",
+  HEDIN: "Hedin Bil",
+  TESLA: "Tesla",
+  INDEPENDENT: "Fristående",
+};
+
+/** Drives the price estimate. Brand dealers cost more than chains, chains more than independents. */
+export const WorkshopTier = z.enum(["MARKESVERKSTAD", "KEDJA", "FRISTAENDE"]);
+export type WorkshopTier = z.infer<typeof WorkshopTier>;
+
+export const WORKSHOP_TIER_LABEL_SV: Record<WorkshopTier, string> = {
+  MARKESVERKSTAD: "Märkesverkstad",
+  KEDJA: "Kedjeverkstad",
+  FRISTAENDE: "Fristående verkstad",
+};
+
+/**
+ * ESTIMATE ASSUMPTIONS (SEK incl. moms). Not workshop prices.
+ * Hourly-rate bands per tier inside the Stockholm band, and a multiplier on
+ * typical parts cost (dealers use OE parts, independents often aftermarket).
+ * Calibrate against real submitted quotes (QuoteAudit.workshopId) over time.
+ */
+export const TIER_ESTIMATE: Record<WorkshopTier, { rateSek: { min: number; max: number }; parts: { min: number; max: number } }> = {
+  MARKESVERKSTAD: { rateSek: { min: 1800, max: 2200 }, parts: { min: 1.1, max: 1.35 } },
+  KEDJA: { rateSek: { min: 1400, max: 1850 }, parts: { min: 0.95, max: 1.15 } },
+  FRISTAENDE: { rateSek: { min: 1200, max: 1700 }, parts: { min: 0.85, max: 1.1 } },
+};
+
+/** Premium cars: more expensive parts and slightly longer jobs. */
+export const PriceClass = z.enum(["STANDARD", "PREMIUM"]);
+export type PriceClass = z.infer<typeof PriceClass>;
+export const PRICE_CLASS_FACTOR: Record<PriceClass, { hours: number; parts: number }> = {
+  STANDARD: { hours: 1, parts: 1 },
+  PREMIUM: { hours: 1.1, parts: 1.3 },
+};
 
 export const ServiceCategory = z.enum(["SERVICE", "BROMSAR", "DACK", "ELSYSTEM", "DIAGNOS"]);
 export type ServiceCategory = z.infer<typeof ServiceCategory>;
@@ -49,26 +96,15 @@ export const SERVICE_CATEGORY_LABEL_SV: Record<ServiceCategory, string> = {
   DIAGNOS: "Felsökning",
 };
 
-export const AuditVerdict = z.enum(["RIMLIGT", "NAGOT_HOGT", "FOR_HOGT", "MISSTANKT_MERFORSALJNING"]);
+/** Signal for a quote the user received, compared with our estimate. */
+export const AuditVerdict = z.enum(["BILLIGT", "BRA_VARDE", "DYRT"]);
 export type AuditVerdict = z.infer<typeof AuditVerdict>;
 
 export const AUDIT_VERDICT_LABEL_SV: Record<AuditVerdict, string> = {
-  RIMLIGT: "Rimligt pris",
-  NAGOT_HOGT: "Något högt",
-  FOR_HOGT: "För högt",
-  MISSTANKT_MERFORSALJNING: "Misstänkt merförsäljning",
+  BILLIGT: "Billigt",
+  BRA_VARDE: "Bra värde",
+  DYRT: "Dyrt",
 };
-
-/** Higher = worse for the customer. Used to pick the stricter of two verdicts. */
-export const AUDIT_VERDICT_SEVERITY: Record<AuditVerdict, number> = {
-  RIMLIGT: 0,
-  NAGOT_HOGT: 1,
-  FOR_HOGT: 2,
-  MISSTANKT_MERFORSALJNING: 3,
-};
-
-export const BookingStatus = z.enum(["SKICKAD", "BEKRAFTAD", "AVBOKAD"]);
-export type BookingStatus = z.infer<typeof BookingStatus>;
 
 export const Urgency = z.enum(["LAG", "MEDEL", "HOG"]);
 export type Urgency = z.infer<typeof Urgency>;
@@ -79,15 +115,13 @@ export const URGENCY_LABEL_SV: Record<Urgency, string> = {
   HOG: "Sluta köra – kontakta verkstad",
 };
 
-export const SortMode = z.enum(["BAST_VARDE", "LAGST_PRIS", "NARMAST", "TIDIGAST", "BETYG"]);
+export const SortMode = z.enum(["BAST_VARDE", "LAGST_PRIS", "NARMAST"]);
 export type SortMode = z.infer<typeof SortMode>;
 
 export const SORT_MODE_LABEL_SV: Record<SortMode, string> = {
   BAST_VARDE: "Bäst värde",
-  LAGST_PRIS: "Lägst pris",
+  LAGST_PRIS: "Lägst uppskattat pris",
   NARMAST: "Närmast",
-  TIDIGAST: "Tidigaste tid",
-  BETYG: "Högst betyg",
 };
 
 /** Posted hourly rates in Stockholms län, SEK incl. moms. */

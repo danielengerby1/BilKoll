@@ -1,89 +1,65 @@
 import { describe, expect, it } from "vitest";
-import { adjustedRating, rankOffers, sortOffers, type Offer } from "@/features/comparison/ranking";
+import { rankOffers, sortOffers, type Offer } from "@/features/comparison/ranking";
+import { estimatePrice } from "@/lib/estimate";
+import type { WorkshopTier } from "@/lib/domain";
 
-const now = new Date("2026-11-04T08:00:00Z");
-const inDays = (d: number) => new Date(now.getTime() + d * 86_400_000);
+const service = { estimatedHours: 1.3, typicalPartsSek: 1900 };
 
-function offer(id: string, overrides: Partial<Offer>): Offer {
+function offer(id: string, tier: WorkshopTier, distanceKm: number, overrides: Partial<Offer> = {}): Offer {
   return {
     workshopId: id,
     workshopName: id,
+    chain: "INDEPENDENT",
+    tier,
+    address: "Gatan 1",
     city: "Stockholm",
-    laborSek: 2000,
-    partsSek: 1000,
-    totalSek: 3000,
-    noteSv: null,
-    hourlyRateSek: 1600,
-    distanceKm: 5,
-    rating: 4.5,
-    reviewCount: 100,
-    nextAvailableAt: inDays(3),
-    isGodkandBilverkstad: true,
+    phone: null,
+    website: null,
+    estimate: estimatePrice(service, tier),
+    distanceKm,
+    isGodkandBilverkstad: false,
     isMrf: false,
-    isAuthorized: false,
     isAuthorizedForMake: false,
     ...overrides,
   };
 }
 
 const offers = [
-  offer("cheap-bad", { totalSek: 2000, rating: 3.2, reviewCount: 200, distanceKm: 25, isGodkandBilverkstad: false }),
-  offer("good-value", { totalSek: 2400, rating: 4.7, reviewCount: 300, distanceKm: 4, isMrf: true }),
-  offer("expensive", { totalSek: 5000, rating: 4.8, reviewCount: 50, distanceKm: 1, nextAvailableAt: inDays(0) }),
-  offer("mid", { totalSek: 3000 }),
+  offer("indep-far", "FRISTAENDE", 28),
+  offer("chain-near", "KEDJA", 2),
+  offer("dealer-nearest", "MARKESVERKSTAD", 1, { isAuthorizedForMake: true }),
+  offer("indep-near", "FRISTAENDE", 6),
 ];
 
 describe("rankOffers", () => {
-  const summary = rankOffers(offers, now);
+  const s = rankOffers(offers);
 
-  it("finds cheapest, nearest and earliest", () => {
-    expect(summary.cheapestId).toBe("cheap-bad");
-    expect(summary.nearestId).toBe("expensive");
-    expect(summary.earliestId).toBe("expensive");
+  it("cheapest is the closest of the lowest-estimate workshops", () => {
+    expect(s.cheapestId).toBe("indep-near");
   });
 
-  it("best value balances price with quality", () => {
-    expect(summary.bestValueId).toBe("good-value");
+  it("nearest is by distance", () => {
+    expect(s.nearestId).toBe("dealer-nearest");
   });
 
-  it("computes median and savings", () => {
-    expect(summary.medianTotalSek).toBe(2700);
-    const good = summary.offers.find((o) => o.workshopId === "good-value");
-    expect(good?.savingVsMedianSek).toBe(300);
-  });
-
-  it("flags price outliers", () => {
-    expect(summary.offers.find((o) => o.workshopId === "expensive")?.isPriceOutlier).toBe(true);
-    expect(summary.offers.find((o) => o.workshopId === "mid")?.isPriceOutlier).toBe(false);
+  it("best value balances estimated price and distance", () => {
+    expect(s.bestValueId).toBe("indep-near");
   });
 
   it("handles an empty list", () => {
-    const empty = rankOffers([], now);
-    expect(empty.cheapestId).toBeNull();
-    expect(empty.medianTotalSek).toBeNull();
+    expect(rankOffers([]).cheapestId).toBeNull();
   });
 });
 
 describe("sortOffers", () => {
-  const { offers: ranked } = rankOffers(offers, now);
+  const { offers: ranked } = rankOffers(offers);
 
-  it("sorts by price", () => {
-    expect(sortOffers(ranked, "LAGST_PRIS", now).map((o) => o.workshopId)).toEqual([
-      "cheap-bad",
-      "good-value",
-      "mid",
-      "expensive",
+  it("sorts by estimated price, then distance", () => {
+    expect(sortOffers(ranked, "LAGST_PRIS").map((o) => o.workshopId)).toEqual([
+      "indep-near",
+      "indep-far",
+      "chain-near",
+      "dealer-nearest",
     ]);
-  });
-
-  it("sorts by distance", () => {
-    expect(sortOffers(ranked, "NARMAST", now)[0]?.workshopId).toBe("expensive");
-  });
-});
-
-describe("adjustedRating", () => {
-  it("pulls ratings with few reviews toward the prior", () => {
-    expect(adjustedRating(5, 1)).toBeLessThan(4.1);
-    expect(adjustedRating(5, 1000)).toBeGreaterThan(4.9);
   });
 });

@@ -2,12 +2,14 @@
 
 import { z } from "zod";
 import { firstZodError, type ActionResult } from "@/lib/action-result";
-import { AuditVerdict } from "@/lib/domain";
+import { priceClassFor } from "@/lib/car-models";
+import { AuditVerdict, WORKSHOP_TIER_LABEL_SV, WorkshopTier } from "@/lib/domain";
+import { estimatePrice, marketEstimate } from "@/lib/estimate";
 import { parseSekInput } from "@/lib/money";
 import { isValidRegnr, normalizeRegnr } from "@/lib/regnr";
 import { getAIService } from "@/server/ai";
 import { db } from "@/server/db";
-import { auditQuote, type AuditResult, mergeVerdicts } from "../audit";
+import { auditQuote, type AuditResult } from "../audit";
 
 const sekField = (label: string) =>
   z
@@ -22,12 +24,14 @@ const sekField = (label: string) =>
     })
     .pipe(z.number().int().max(500_000, { error: `${label} verkar orimligt högt.` }));
 
+const optional = (v: string) => (v.trim() === "" ? null : v.trim());
+
 const AuditInput = z.object({
   serviceSlug: z.string().min(1, { error: "Välj vilket jobb offerten gäller." }),
+  workshopId: z.string().transform(optional),
   regnr: z
     .string()
-    .trim()
-    .transform((v) => (v === "" ? null : v))
+    .transform(optional)
     .refine((v) => v === null || isValidRegnr(v), { error: "Ogiltigt registreringsnummer." })
     .transform((v) => (v ? normalizeRegnr(v) : null)),
   quotedHours: z
@@ -37,16 +41,15 @@ const AuditInput = z.object({
     .refine((v) => v === null || (Number.isFinite(v) && v > 0 && v < 100), { error: "Ange antal timmar, t.ex. 1,5." }),
   quotedLaborSek: sekField("arbetskostnaden"),
   quotedPartsSek: sekField("materialkostnaden"),
-  rawText: z
-    .string()
-    .trim()
-    .max(5000, { error: "Offerttexten är för lång (max 5 000 tecken)." })
-    .transform((v) => (v === "" ? null : v)),
+  rawText: z.string().max(5000, { error: "Offerttexten är för lång (max 5 000 tecken)." }).transform(optional),
 });
 
 export type AuditResponse = AuditResult & {
   id: string;
   serviceTitleSv: string;
+  /** "Speedy Bilservice Solna" or null when compared with the Stockholm standard. */
+  workshopName: string | null;
+  comparedWithSv: string;
   adviceSv: string;
   questionsToAskSv: string[];
   aiModel: string;
@@ -59,6 +62,7 @@ export async function auditQuoteAction(
   const str = (k: string) => String(formData.get(k) ?? "");
   const parsed = AuditInput.safeParse({
     serviceSlug: str("serviceSlug"),
+    workshopId: str("workshopId"),
     regnr: str("regnr"),
     quotedHours: str("quotedHours"),
     quotedLaborSek: str("quotedLaborSek"),
@@ -68,62 +72,60 @@ export async function auditQuoteAction(
   if (!parsed.success) return { ok: false, error: firstZodError(parsed.error) };
   const input = parsed.data;
 
-  const service = await db.standardService.findUnique({
-    where: { slug: input.serviceSlug },
-    include: { prices: { select: { fixedPriceSek: true, partsPriceSek: true } } },
-  });
-  const vehicle = input.regnr ? await db.vehicle.findUnique({ where: { regnr: input.regnr } }) : null;
+  const [service, workshop, vehicle] = await Promise.all([
+    db.standardService.findUnique({ where: { slug: input.serviceSlug } }),
+    input.workshopId ? db.workshop.findUnique({ where: { id: input.workshopId } }) : null,
+    input.regnr ? db.vehicle.findUnique({ where: { regnr: input.regnr } }) : null,
+  ]);
+  if (!service) return { ok: false, error: "Vi känner inte igen jobbet. Välj ett i listan." };
 
-  // 1. Numbers: deterministic, from our own data.
-  const result = auditQuote(
-    input,
-    service && service.prices.length > 0
-      ? {
-          estimatedHours: service.estimatedHours,
-          marketTotalsSek: service.prices.map((p) => p.fixedPriceSek + p.partsPriceSek),
-          marketPartsSek: service.prices.map((p) => p.partsPriceSek),
-        }
-      : null,
-  );
+  // 1. Numbers: our estimate for THIS workshop type (or the Stockholm standard).
+  const priceClass = vehicle ? priceClassFor(vehicle.make, vehicle.model) : "STANDARD";
+  const tier = workshop ? WorkshopTier.catch("KEDJA").parse(workshop.tier) : null;
+  const estimate = tier ? estimatePrice(service, tier, priceClass) : marketEstimate(service, priceClass);
+  const result = auditQuote(input, estimate);
+  const comparedWithSv = tier
+    ? `vår uppskattning för ${WORKSHOP_TIER_LABEL_SV[tier].toLowerCase()}`
+    : "BilKolls standardpris i Stockholm";
 
-  // 2. Words: the AI explains. It may only make the verdict stricter.
+  // 2. Words: the AI explains. It may only add an upsell warning.
   const ai = getAIService();
-  const serviceTitleSv = service?.titleSv ?? input.serviceSlug;
   const explanation = await ai.explainQuote({
-    serviceTitleSv,
+    serviceTitleSv: service.titleSv,
     vehicle: vehicle
       ? { make: vehicle.make, model: vehicle.model, year: vehicle.year, fuelType: vehicle.fuelType, variant: vehicle.variant }
       : null,
+    workshopSv: workshop && tier ? `${workshop.name} (${WORKSHOP_TIER_LABEL_SV[tier].toLowerCase()})` : null,
     rawText: input.rawText,
     quotedHours: input.quotedHours,
     quotedLaborSek: input.quotedLaborSek,
     quotedPartsSek: input.quotedPartsSek,
-    deterministicVerdict: result.verdict,
-    benchmarkHours: result.benchmarkHours,
-    benchmarkTotalSek: result.benchmarkTotalSek,
-    fairRangeSek: result.fairRangeSek,
+    verdict: result.verdict,
+    estimateSek: { low: estimate.lowSek, typical: estimate.typicalSek, high: estimate.highSek },
+    bookHours: estimate.hours,
     findingsSv: result.findings.map((f) => f.textSv),
   });
 
-  const verdict = AuditVerdict.parse(
-    mergeVerdicts(result.verdict, input.rawText ? (explanation?.verdict ?? null) : null),
-  );
-  const adviceSv =
-    explanation?.adviceSv ??
-    (result.findings.map((f) => f.textSv).join(" ") || "Offerten ligger i linje med marknadspriset.");
+  const suspectedUpsell = result.suspectedUpsell || (input.rawText !== null && explanation?.suspectedUpsell === true);
+  const adviceSv = explanation?.adviceSv ?? result.findings.map((f) => f.textSv).join(" ");
   const aiModel = explanation ? ai.model : "deterministic";
 
+  // Stored with workshopId: real quotes become calibration data for our estimates.
   const saved = await db.quoteAudit.create({
     data: {
       regnr: vehicle?.regnr ?? null,
-      serviceType: input.serviceSlug,
+      workshopId: workshop?.id ?? null,
+      serviceType: service.slug,
       rawText: input.rawText,
       quotedHours: input.quotedHours,
       quotedLaborSek: input.quotedLaborSek,
       quotedPartsSek: input.quotedPartsSek,
-      benchmarkHours: result.benchmarkHours,
-      benchmarkTotalSek: result.benchmarkTotalSek,
-      verdict,
+      benchmarkHours: estimate.hours,
+      benchmarkLowSek: estimate.lowSek,
+      benchmarkTotalSek: estimate.typicalSek,
+      benchmarkHighSek: estimate.highSek,
+      verdict: AuditVerdict.parse(result.verdict),
+      suspectedUpsell,
       adviceSv,
       aiModel,
     },
@@ -133,9 +135,11 @@ export async function auditQuoteAction(
     ok: true,
     data: {
       ...result,
-      verdict,
+      suspectedUpsell,
       id: saved.id,
-      serviceTitleSv,
+      serviceTitleSv: service.titleSv,
+      workshopName: workshop?.name ?? null,
+      comparedWithSv,
       adviceSv,
       questionsToAskSv: explanation?.questionsToAskSv ?? [],
       aiModel,

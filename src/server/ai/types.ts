@@ -30,22 +30,23 @@ export type MechanicAnswer = z.infer<typeof MechanicAnswer>;
 export type QuoteExplanationInput = {
   serviceTitleSv: string;
   vehicle: VehicleContext | null;
+  /** Workshop that gave the quote, e.g. "Speedy Bilservice Solna (kedjeverkstad)". */
+  workshopSv: string | null;
   rawText: string | null;
   quotedHours: number | null;
   quotedLaborSek: number;
   quotedPartsSek: number;
   /** Everything below is computed by our code – the model must not change the numbers. */
-  deterministicVerdict: AuditVerdict;
-  benchmarkHours: number | null;
-  benchmarkTotalSek: number | null;
-  fairRangeSek: { low: number; high: number } | null;
+  verdict: AuditVerdict;
+  estimateSek: { low: number; typical: number; high: number };
+  bookHours: number;
   findingsSv: readonly string[];
 };
 
 export const QuoteExplanation = z.object({
   adviceSv: z.string().min(1).max(3000),
-  /** The model may only suggest a stricter verdict; merged by mergeVerdicts(). */
-  verdict: AuditVerdict.nullable(),
+  /** The model may only ADD an upsell warning (OR-ed with ours). */
+  suspectedUpsell: z.boolean().default(false),
   questionsToAskSv: z.array(z.string()).max(4).default([]),
 });
 export type QuoteExplanation = z.infer<typeof QuoteExplanation>;

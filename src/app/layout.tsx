@@ -17,7 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <SiteHeader />
         <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
         <footer className="border-t py-6 text-center text-xs text-muted-foreground">
-          BilKoll · Alla priser inkl. moms · Råden är vägledning, ingen diagnos
+          BilKoll · Priser är uppskattningar inkl. moms · Råden är vägledning, ingen diagnos
         </footer>
       </body>
     </html>

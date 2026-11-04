@@ -1,6 +1,7 @@
 # BilKoll – CLAUDE.md
 
 "Skyscanner for car repair" + AI Pocket Mechanic for Swedish car owners. Launch market: **Stockholms län**.
+Workshops are **real businesses**; prices are **BilKoll's estimates** (never presented as the workshop's own price). The user gets a quote from a workshop and compares it with our estimate → **Billigt / Bra värde / Dyrt**.
 The core promise is that the user does not get overcharged ("bli lurad på verkstaden"). Every feature should make prices and advice **transparent, explainable and conservative**.
 
 ## Stack
@@ -29,16 +30,16 @@ First run: `cp .env.example .env && npm i && npm run db:push && npm run db:seed 
 
 ## Project layout
 ```
-prisma/              schema.prisma, seed.ts, migrations/
+prisma/              schema.prisma, seed.ts, migrations/, data/workshops.ts (real workshops + source URLs)
 src/app/             Routes only. Thin: fetch data, compose feature components.
 src/components/ui/   shadcn primitives. No business logic. Do not edit except to theme.
 src/components/      App-wide chrome (header, demo banner).
-src/features/<name>/ Vertical slices: vehicle-lookup, comparison, ai-mechanic, quote-audit, booking
+src/features/<name>/ Vertical slices: vehicle-lookup, comparison, ai-mechanic, quote-audit
   components/        Feature UI (client components named *.client.tsx when "use client")
   server/            Queries + Server Actions for this feature ("use server" files: actions.ts)
   *.ts               Pure feature logic (ranking.ts, audit.ts, safety.ts) – unit-tested
 src/server/          Cross-cutting server code: db.ts, ai/, vehicle-data/
-src/lib/             Pure, framework-free helpers (money, regnr, geo, dates, domain enums, car-models). Unit-tested.
+src/lib/             Pure, framework-free helpers (money, regnr, geo, dates, domain enums, car-models, estimate). Unit-tested.
 tests/               Vitest tests for src/lib and pure feature logic
 ```
 Import rules: `app → features → server/lib`. Features never import from each other's `server/`. Pure logic goes in `src/lib` or a `*.ts` file in the feature with no React/Prisma imports, so it can be tested.
@@ -46,29 +47,30 @@ Import rules: `app → features → server/lib`. Features never import from each
 ## Routes
 | Route | What |
 |---|---|
-| `/` | Hero, regnr lookup, search form, "från X kr" per service |
-| `/jamfor?tjanst=&postnr=&regnr=&sortera=` | Price comparison (GET params → shareable URLs) |
-| `/bil/[regnr]` | Car summary, besiktning deadline, model guide, relevant services |
-| `/verkstad/[id]` | Workshop price list |
-| `/boka/[workshopId]/[serviceSlug]` → `/boka/tack/[id]` | Booking request |
-| `/granska` | Quote audit ("BS-detector") |
+| `/` | Hero, regnr lookup, search form, standard price per service |
+| `/jamfor?tjanst=&postnr=&regnr=&sortera=` | Real workshops with estimated price ranges (GET params → shareable URLs) |
+| `/bil/[regnr]` | Car summary, besiktning deadline, model guide, estimates for the car |
+| `/verkstad/[id]` | Workshop contact details, source, estimates per service |
+| `/granska?verkstad=&tjanst=&regnr=` | Compare a received quote with our estimate |
 | `/fraga` | AI mechanic chat |
 
 ## Domain rules (do not break)
 - **Money:** whole SEK as `Int`, **always incl. 25 % moms**, field/var suffix `Sek` (`hourlyRateSek`). No floats for money. Format only through `formatSek()` (`src/lib/money.ts`). Show "inkl. moms" next to prices in the UI.
-- **Price breakdown:** `WorkshopServicePrice.fixedPriceSek` = *Arbetskostnad*, `partsPriceSek` = *Materialkostnad*. The total is always computed, never stored (exception: `BookingRequest.quotedTotalSek` / `QuoteAudit.benchmarkTotalSek` are deliberate snapshots).
+- **Estimates, not prices:** `src/lib/estimate.ts` computes ranges = book time × `TIER_ESTIMATE[tier].rateSek` + `typicalPartsSek` × parts multiplier (× `PRICE_CLASS_FACTOR` for premium cars). Never store or label an estimate as a workshop's price. UI copy says "Uppskattat pris" / "BilKolls uppskattning". Breakdown: *Arbetskostnad* (labour) + *Materialkostnad* (parts). `QuoteAudit.benchmark*Sek` are deliberate snapshots.
+- **Offer signal:** `classifyOffer()` – below the workshop-tier range = `BILLIGT`, inside = `BRA_VARDE`, above = `DYRT`. Compare against the tier of the workshop that gave the quote (a dealer isn't "dyrt" for dealer prices); without a workshop, against `marketEstimate()`. Upsell is a separate flag (`suspectedUpsell`).
+- **Real workshop data:** public business details only, each with `sourceUrl` and `verifiedAt`. Don't copy third-party ratings/reviews. Don't invent phone numbers or addresses; leave a field empty if no source has it. Coordinates are postal-area centres (show distances as "ca").
 - **Regnr:** always `normalizeRegnr()` before storing or looking up (`ABC123`). Display with `formatRegnr()` (`ABC 123`). Accept both `ABC 123` and `ABC 12D`.
 - **Enums:** stored as `String` in Prisma. Allowed values live **only** in `src/lib/domain.ts` (Zod enums). Validate with Zod before writing.
 - **Stockholm hourly-rate band:** 1 200–2 200 SEK/h inkl. moms (`STOCKHOLM_HOURLY_RATE_SEK`). Keep it as a constant, not a magic number.
 - **Distance:** `distanceKm()` (haversine) from the user's postal code, falling back to `STOCKHOLM_CENTRAL`.
-- **Trust badges:** Godkänd Bilverkstad, MRF-ansluten, Auktoriserad märkesverkstad. Only show a badge when the DB flag is true. Never infer badges.
+- **Trust badges:** Godkänd Bilverkstad, MRF-ansluten, Auktoriserad märkesverkstad. Only show a badge when the DB flag is true. Never infer badges. Godkänd/MRF stay false until checked against the official registers; authorised makes come from the dealer's own name/site.
 - **Ranking:** "Bäst värde" is the open formula in `features/comparison/ranking.ts` (`VALUE_WEIGHTS`). The UI explains it (`ValueExplainer`). No paid placement.
-- **Demo data:** seeded workshops are fictional. Keep the `DemoBanner` until real price feeds exist.
+- **Banner:** keep the banner saying prices are estimates until workshops publish real prices.
 
 ## AI rules
 - Features call `getAIService()` (`src/server/ai`). Never import `@anthropic-ai/sdk` outside `src/server/ai/providers/` (enforced by ESLint).
 - Model comes from `AI_MODEL` (default `claude-sonnet-5-5`). Don't hardcode model IDs elsewhere.
-- **Numbers come from our code, not the model.** The quote auditor computes the benchmark (book hours × rate band, DB price range) itself (`features/quote-audit/audit.ts`). The model only classifies and explains, and may only make a verdict stricter (`mergeVerdicts`). Parse model output with Zod and fall back to a deterministic verdict when parsing fails.
+- **Numbers come from our code, not the model.** The verdict and estimate come from `lib/estimate.ts` + `features/quote-audit/audit.ts`. The model only explains, and may only *add* an upsell warning (OR-ed with ours). Parse model output with Zod and fall back to deterministic text when parsing fails.
 - User-facing AI text is Swedish, plain-language, short. Safety-critical symptoms (brakes, steering, red warning lights, smell of fuel) must tell the user to stop driving or contact a workshop – `features/ai-mechanic/safety.ts` does this deterministically, independent of the model. The AI never claims a definitive diagnosis.
 - Store `aiModel` on `QuoteAudit` rows for traceability.
 - Tests use the `mock` provider (`AI_PROVIDER=mock`). No network calls in tests.
@@ -83,7 +85,7 @@ Import rules: `app → features → server/lib`. Features never import from each
 - Client forms submit with `onSubmit` + `startTransition(() => action(formData))` so input isn't wiped on validation errors.
 - Keep files small and focused (aim for under ~200 lines). One component per file. Named exports, except Next.js route files.
 - Code, identifiers and comments in **English**; **all user-facing copy in Swedish**. Swedish domain nouns are fine as identifiers when they *are* the concept (`regnr`, `besiktning`, `isGodkandBilverkstad`).
-- Tailwind utility classes. Use `cn()` for conditional classes. No inline styles, no CSS modules.
+- Tailwind utility classes. Use `cn()` for conditional classes. No inline styles (except data-driven positions, e.g. `RangeMeter`), no CSS modules.
 - Accessibility: every input has a label, interactive elements are keyboard-reachable, colour is never the only signal (verdicts get icon + text).
 - Dates: `Intl.DateTimeFormat("sv-SE")`, timezone `Europe/Stockholm`.
 

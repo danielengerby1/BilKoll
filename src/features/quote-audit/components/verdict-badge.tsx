@@ -1,12 +1,11 @@
-import { AlertOctagon, AlertTriangle, CheckCircle2, ShieldAlert } from "lucide-react";
+import { AlertOctagon, BadgePercent, ThumbsUp } from "lucide-react";
 import { AUDIT_VERDICT_LABEL_SV, type AuditVerdict } from "@/lib/domain";
 import { cn } from "@/lib/utils";
 
-const STYLE: Record<AuditVerdict, { icon: typeof CheckCircle2; className: string }> = {
-  RIMLIGT: { icon: CheckCircle2, className: "bg-success/10 text-success border-success/40" },
-  NAGOT_HOGT: { icon: AlertTriangle, className: "bg-warning/15 text-accent-foreground border-warning/50" },
-  FOR_HOGT: { icon: AlertOctagon, className: "bg-destructive/10 text-destructive border-destructive/40" },
-  MISSTANKT_MERFORSALJNING: { icon: ShieldAlert, className: "bg-destructive/10 text-destructive border-destructive/40" },
+const STYLE: Record<AuditVerdict, { icon: typeof ThumbsUp; className: string }> = {
+  BILLIGT: { icon: BadgePercent, className: "bg-secondary text-secondary-foreground border-primary/30" },
+  BRA_VARDE: { icon: ThumbsUp, className: "bg-success/10 text-success border-success/40" },
+  DYRT: { icon: AlertOctagon, className: "bg-destructive/10 text-destructive border-destructive/40" },
 };
 
 /** Icon + text – colour is never the only signal. */

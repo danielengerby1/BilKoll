@@ -1,4 +1,4 @@
-import type { FuelType } from "./domain";
+import type { FuelType, PriceClass } from "./domain";
 
 /**
  * Plain-language guide for the most common cars on Swedish roads.
@@ -234,4 +234,14 @@ export function findCarModelGuide(make: string, model: string): CarModelGuide | 
 /** Service slugs that make no sense for a fuel type (e.g. oil change on an EV). */
 export function servicesNotApplicable(fuelType: FuelType): readonly string[] {
   return fuelType === "EL" ? ["oljebyte", "kamremsbyte"] : [];
+}
+
+const PREMIUM_MAKES = ["bmw", "audi", "mercedes-benz", "mercedes", "tesla", "polestar", "porsche", "lexus", "land rover", "jaguar"];
+const PREMIUM_MODELS = ["volvo xc90", "volvo v90", "volvo s90"];
+
+/** Premium cars get higher parts cost and slightly longer book time in estimates. */
+export function priceClassFor(make: string, model: string): PriceClass {
+  const m = make.toLowerCase();
+  if (PREMIUM_MAKES.includes(m)) return "PREMIUM";
+  return PREMIUM_MODELS.includes(`${m} ${model.toLowerCase()}`) ? "PREMIUM" : "STANDARD";
 }

@@ -12,7 +12,7 @@ describe("extractJson", () => {
 
   it("rejects model output that breaks the schema", () => {
     expect(MechanicAnswer.safeParse({ answerSv: "x", urgency: "KANSKE", suggestedServiceSlug: null }).success).toBe(false);
-    expect(QuoteExplanation.safeParse({ adviceSv: "ok", verdict: "BILLIGT" }).success).toBe(false);
+    expect(QuoteExplanation.safeParse({ adviceSv: "", suspectedUpsell: "kanske" }).success).toBe(false);
   });
 });
 
@@ -34,20 +34,21 @@ describe("mock AI provider", () => {
     expect(a?.suggestedServiceSlug).toBeNull();
   });
 
-  it("does not change the verdict when explaining a quote", async () => {
+  it("explains a quote without inventing an upsell", async () => {
     const e = await ai.explainQuote({
       serviceTitleSv: "Bromsar fram",
       vehicle: null,
+      workshopSv: null,
       rawText: null,
       quotedHours: 1,
       quotedLaborSek: 2000,
       quotedPartsSek: 1500,
-      deterministicVerdict: "RIMLIGT",
-      benchmarkHours: 1.3,
-      benchmarkTotalSek: 4000,
-      fairRangeSek: { low: 3400, high: 4700 },
+      verdict: "BRA_VARDE",
+      estimateSek: { low: 3400, typical: 4000, high: 4700 },
+      bookHours: 1.3,
       findingsSv: [],
     });
-    expect(e?.verdict).toBeNull();
+    expect(e?.suspectedUpsell).toBe(false);
+    expect(e?.adviceSv).toMatch(/prisvärt/);
   });
 });

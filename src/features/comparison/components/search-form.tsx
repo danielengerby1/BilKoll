@@ -43,7 +43,7 @@ export function SearchForm({ services, defaults, compact }: Props) {
         <Input id="regnr" name="regnr" placeholder="ABC 123" defaultValue={defaults?.regnr} maxLength={8} className="uppercase" />
       </div>
       <Button type="submit" size={compact ? "default" : "lg"}>
-        <Search aria-hidden /> Jämför priser
+        <Search aria-hidden /> Visa verkstäder
       </Button>
     </form>
   );

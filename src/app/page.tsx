@@ -2,7 +2,7 @@ import Link from "next/link";
 import { MessageCircleQuestion, ScanSearch, Scale } from "lucide-react";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { SearchForm } from "@/features/comparison/components/search-form";
-import { getServicePriceRanges, listServices } from "@/features/comparison/server/queries";
+import { getServiceEstimates, listServices } from "@/features/comparison/server/queries";
 import { RegnrForm } from "@/features/vehicle-lookup/components/regnr-form.client";
 import { formatSek } from "@/lib/money";
 
@@ -12,14 +12,14 @@ const FEATURES = [
   {
     href: "/jamfor",
     icon: Scale,
-    title: "Jämför verkstäder",
-    text: "Se arbets- och materialkostnad sida vid sida och hitta bäst värde nära dig.",
+    title: "Hitta verkstäder",
+    text: "Riktiga verkstäder nära dig med vår uppskattning av vad jobbet bör kosta hos var och en.",
   },
   {
     href: "/granska",
     icon: ScanSearch,
-    title: "Granska din offert",
-    text: "Vi jämför offerten mot normaltid och Stockholms marknadspriser och flaggar merförsäljning.",
+    title: "Jämför din offert",
+    text: "Fått ett pris? Vi säger om det är billigt, bra värde eller dyrt – och flaggar merförsäljning.",
   },
   {
     href: "/fraga",
@@ -30,7 +30,7 @@ const FEATURES = [
 ] as const;
 
 export default async function HomePage() {
-  const [services, ranges] = await Promise.all([listServices(), getServicePriceRanges()]);
+  const [services, estimates] = await Promise.all([listServices(), getServiceEstimates()]);
 
   return (
     <div className="grid gap-12">
@@ -40,8 +40,8 @@ export default async function HomePage() {
             Rätt pris på verkstaden. <span className="text-primary">Varje gång.</span>
           </h1>
           <p className="text-lg text-muted-foreground">
-            BilKoll jämför priser hos bilverkstäder i Stockholms län, granskar offerter och svarar på dina bilfrågor – så att
-            du slipper betala för mycket eller köpa jobb du inte behöver.
+            BilKoll visar vad jobbet bör kosta hos verkstäder i Stockholms län. Be om en offert, jämför med vårt pris och se
+            direkt om det är billigt, bra värde eller dyrt.
           </p>
           <RegnrForm />
         </div>
@@ -66,10 +66,13 @@ export default async function HomePage() {
       </section>
 
       <section className="grid gap-4">
-        <h2 className="text-2xl font-semibold">Vanliga jobb – vad kostar det?</h2>
+        <div className="grid gap-1">
+          <h2 className="text-2xl font-semibold">Vanliga jobb – vad bör det kosta?</h2>
+          <p className="text-sm text-muted-foreground">BilKolls standardpris i Stockholm för en genomsnittlig bil.</p>
+        </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {services.map((s) => {
-            const range = ranges.get(s.slug);
+            const e = estimates.get(s.slug);
             return (
               <Link
                 key={s.slug}
@@ -77,10 +80,12 @@ export default async function HomePage() {
                 className="flex items-center justify-between rounded-lg border bg-card px-4 py-3 shadow-xs hover:border-primary focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
               >
                 <span className="font-medium">{s.titleSv}</span>
-                {range && (
+                {e && (
                   <span className="text-right text-sm">
-                    <span className="block font-semibold text-primary">från {formatSek(range.minSek)}</span>
-                    <span className="text-xs text-muted-foreground">median {formatSek(range.medianSek)} inkl. moms</span>
+                    <span className="block font-semibold text-primary">ca {formatSek(e.typicalSek)}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {formatSek(e.lowSek)}–{formatSek(e.highSek)} inkl. moms
+                    </span>
                   </span>
                 )}
               </Link>

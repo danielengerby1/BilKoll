@@ -1,42 +1,41 @@
 import { Info } from "lucide-react";
+import { TIER_ESTIMATE, WORKSHOP_TIER_LABEL_SV, WorkshopTier } from "@/lib/domain";
+import type { PriceEstimate } from "@/lib/estimate";
 import { formatSek } from "@/lib/money";
 
-type Props = {
-  minSek: number | null;
-  medianSek: number | null;
-  maxSek: number | null;
-  fairRange: { low: number; high: number } | null;
-  count: number;
-};
+type Props = { market: PriceEstimate; count: number; tierEstimates: Record<WorkshopTier, PriceEstimate> };
 
-export function PriceSummary({ minSek, medianSek, maxSek, fairRange, count }: Props) {
-  if (minSek === null || maxSek === null) return null;
+export function PriceSummary({ market, count, tierEstimates }: Props) {
   return (
-    <section aria-label="Prisöversikt" className="rounded-xl border bg-card p-5 shadow-sm">
-      <dl className="grid grid-cols-3 gap-4 text-center">
-        <div>
-          <dt className="text-xs text-muted-foreground">Lägst</dt>
-          <dd className="text-xl font-bold text-success">{formatSek(minSek)}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted-foreground">Medianpris</dt>
-          <dd className="text-xl font-bold">{medianSek !== null ? formatSek(medianSek) : "–"}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted-foreground">Högst</dt>
-          <dd className="text-xl font-bold text-destructive">{formatSek(maxSek)}</dd>
-        </div>
-      </dl>
-      <p className="mt-3 text-center text-sm text-muted-foreground">
-        Skillnad mellan dyrast och billigast: <strong className="text-foreground">{formatSek(maxSek - minSek)}</strong> ·{" "}
-        {count} verkstäder · alla priser inkl. moms
-      </p>
-      {fairRange && (
-        <p className="mt-2 flex items-center justify-center gap-1.5 text-center text-sm">
-          <Info aria-hidden className="size-4 text-primary" />
-          Rimligt pris enligt normaltid och Stockholms timpriser: {formatSek(fairRange.low)}–{formatSek(fairRange.high)} inkl. moms
+    <section aria-label="Standardpris" className="grid gap-4 rounded-xl border bg-card p-5 shadow-sm">
+      <div className="text-center">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">BilKolls standardpris i Stockholm</p>
+        <p className="text-3xl font-bold tabular-nums">ca {formatSek(market.typicalSek)}</p>
+        <p className="text-sm text-muted-foreground">
+          Spann {formatSek(market.lowSek)}–{formatSek(market.highSek)} inkl. moms · normaltid ca {market.hours.toLocaleString("sv-SE")} h · {count} verkstäder
         </p>
-      )}
+      </div>
+      <dl className="grid gap-2 text-center text-sm sm:grid-cols-3">
+        {WorkshopTier.options.map((tier) => {
+          const e = tierEstimates[tier];
+          const rate = TIER_ESTIMATE[tier].rateSek;
+          return (
+            <div key={tier} className="rounded-lg bg-muted px-3 py-2">
+              <dt className="text-muted-foreground">{WORKSHOP_TIER_LABEL_SV[tier]}</dt>
+              <dd className="font-semibold tabular-nums">
+                {formatSek(e.lowSek)}–{formatSek(e.highSek)}
+              </dd>
+              <dd className="text-xs text-muted-foreground">
+                timpris ca {formatSek(rate.min)}–{formatSek(rate.max)}
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+      <p className="flex items-start justify-center gap-1.5 text-center text-sm">
+        <Info aria-hidden className="mt-0.5 size-4 shrink-0 text-primary" />
+        Uppskattningar, inte verkstädernas egna priser. Be om en offert och jämför den med vårt pris.
+      </p>
     </section>
   );
 }

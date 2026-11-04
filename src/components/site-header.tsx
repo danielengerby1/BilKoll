@@ -2,8 +2,8 @@ import Link from "next/link";
 import { CircleCheckBig } from "lucide-react";
 
 const NAV = [
-  { href: "/jamfor", label: "Jämför priser" },
-  { href: "/granska", label: "Granska offert" },
+  { href: "/jamfor", label: "Hitta verkstad" },
+  { href: "/granska", label: "Jämför offert" },
   { href: "/fraga", label: "Fråga mekanikern" },
 ] as const;
 

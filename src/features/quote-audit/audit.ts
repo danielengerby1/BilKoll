@@ -1,12 +1,14 @@
-import { AUDIT_VERDICT_SEVERITY, STOCKHOLM_HOURLY_RATE_SEK, type AuditVerdict } from "@/lib/domain";
-import { formatSek, laborCostSek, median, sumSek } from "@/lib/money";
-
-const hoursSv = (h: number) => `${h.toLocaleString("sv-SE")} h`;
+import { STOCKHOLM_HOURLY_RATE_SEK, type AuditVerdict } from "@/lib/domain";
+import { classifyOffer, type PriceEstimate } from "@/lib/estimate";
+import { formatSek, sumSek } from "@/lib/money";
 
 /**
- * Deterministic quote benchmark. All numbers come from here – never from the AI.
- * The AI may only explain, and may only make a verdict stricter (see mergeVerdicts).
+ * Compares a quote the user received with BilKoll's estimate.
+ * All numbers come from here – never from the AI. The AI may only explain,
+ * and may only ADD an upsell warning, never remove one.
  */
+
+const hoursSv = (h: number) => `${h.toLocaleString("sv-SE")} h`;
 
 export type QuoteInput = {
   quotedHours: number | null;
@@ -15,45 +17,29 @@ export type QuoteInput = {
   rawText: string | null;
 };
 
-export type ServiceBenchmarkInput = {
-  /** Book time ("normaltid") for the service. */
-  estimatedHours: number;
-  /** Totals (labour + parts) from workshops in our DB for this service. */
-  marketTotalsSek: readonly number[];
-  marketPartsSek: readonly number[];
-};
-
-export type AuditFinding = { code: AuditFindingCode; textSv: string };
 export type AuditFindingCode =
+  | "BELOW_ESTIMATE"
   | "HOURS_ABOVE_BOOK_TIME"
   | "HOURLY_RATE_ABOVE_BAND"
-  | "TOTAL_ABOVE_MARKET"
-  | "PARTS_ABOVE_MARKET"
-  | "UPSELL_KEYWORDS"
-  | "NO_BENCHMARK";
+  | "PARTS_ABOVE_ESTIMATE"
+  | "UPSELL_KEYWORDS";
+export type AuditFinding = { code: AuditFindingCode; textSv: string };
 
 export type AuditResult = {
   verdict: AuditVerdict;
   quotedTotalSek: number;
-  benchmarkHours: number | null;
-  benchmarkTotalSek: number | null;
-  /** Fair range for this job: low = cheap workshop, high = expensive but still reasonable. */
-  fairRangeSek: { low: number; high: number } | null;
+  estimate: PriceEstimate;
+  diffFromTypicalPct: number;
+  positionInRange: number;
   effectiveHourlyRateSek: number | null;
-  /** Positive = how much more than the benchmark. */
-  overBenchmarkSek: number | null;
+  suspectedUpsell: boolean;
   findings: AuditFinding[];
 };
 
-/** total / benchmark ratios. */
-export const VERDICT_THRESHOLDS = { reasonable: 1.15, slightlyHigh: 1.4 } as const;
 /** Quoted hours above book time × this factor suggests padding or extra work. */
 export const HOURS_PADDING_FACTOR = 1.6;
 
-/**
- * Words that often signal add-ons sold on top of the job you asked for.
- * Not wrong in themselves – but worth asking about.
- */
+/** Words that often signal add-ons sold on top of the job you asked for. */
 export const UPSELL_KEYWORDS = [
   "motorrengöring",
   "motorspolning",
@@ -80,16 +66,39 @@ export function findUpsellKeywords(rawText: string | null): string[] {
   return UPSELL_KEYWORDS.filter((k) => text.includes(k));
 }
 
-export function auditQuote(quote: QuoteInput, bench: ServiceBenchmarkInput | null): AuditResult {
+export function auditQuote(quote: QuoteInput, estimate: PriceEstimate): AuditResult {
   const quotedTotalSek = sumSek(quote.quotedLaborSek, quote.quotedPartsSek);
+  const signal = classifyOffer(quotedTotalSek, estimate);
   const findings: AuditFinding[] = [];
+
   const effectiveHourlyRateSek =
     quote.quotedHours && quote.quotedHours > 0 ? Math.round(quote.quotedLaborSek / quote.quotedHours) : null;
+
+  if (signal.verdict === "BILLIGT") {
+    findings.push({
+      code: "BELOW_ESTIMATE",
+      textSv: "Priset är lägre än vi räknat med. Kontrollera att alla delar, moms och eventuella avgifter ingår.",
+    });
+  }
+
+  if (quote.quotedHours !== null && quote.quotedHours > estimate.hours * HOURS_PADDING_FACTOR) {
+    findings.push({
+      code: "HOURS_ABOVE_BOOK_TIME",
+      textSv: `Offerten räknar med ${hoursSv(quote.quotedHours)}. Normaltiden för jobbet är ungefär ${hoursSv(estimate.hours)}.`,
+    });
+  }
 
   if (effectiveHourlyRateSek !== null && effectiveHourlyRateSek > STOCKHOLM_HOURLY_RATE_SEK.max) {
     findings.push({
       code: "HOURLY_RATE_ABOVE_BAND",
       textSv: `Timpriset blir ${formatSek(effectiveHourlyRateSek)}/h. Vanligt i Stockholm är ${formatSek(STOCKHOLM_HOURLY_RATE_SEK.min)}–${formatSek(STOCKHOLM_HOURLY_RATE_SEK.max)}/h inkl. moms.`,
+    });
+  }
+
+  if (quote.quotedPartsSek > estimate.partsSek.high * 1.2) {
+    findings.push({
+      code: "PARTS_ABOVE_ESTIMATE",
+      textSv: `Materialkostnaden är högre än vi räknat med (upp till ca ${formatSek(estimate.partsSek.high)}). Be om en specifikation av delarna.`,
     });
   }
 
@@ -101,80 +110,16 @@ export function auditQuote(quote: QuoteInput, bench: ServiceBenchmarkInput | nul
     });
   }
 
-  if (!bench) {
-    findings.push({ code: "NO_BENCHMARK", textSv: "Vi har inget jämförelsepris för just det här jobbet ännu." });
-    return {
-      verdict: upsell.length > 0
-        ? "MISSTANKT_MERFORSALJNING"
-        : findings.some((f) => f.code === "HOURLY_RATE_ABOVE_BAND")
-          ? "NAGOT_HOGT"
-          : "RIMLIGT",
-      quotedTotalSek,
-      benchmarkHours: null,
-      benchmarkTotalSek: null,
-      fairRangeSek: null,
-      effectiveHourlyRateSek,
-      overBenchmarkSek: null,
-      findings,
-    };
-  }
-
-  const fairRangeSek = computeFairRange(bench);
-  const benchmarkTotalSek = median(bench.marketTotalsSek) ?? fairRangeSek.typical;
-  const ratio = benchmarkTotalSek > 0 ? quotedTotalSek / benchmarkTotalSek : 1;
-
-  if (quote.quotedHours !== null && quote.quotedHours > bench.estimatedHours * HOURS_PADDING_FACTOR) {
-    findings.push({
-      code: "HOURS_ABOVE_BOOK_TIME",
-      textSv: `Offerten räknar med ${hoursSv(quote.quotedHours)}. Normaltiden för jobbet är ungefär ${hoursSv(bench.estimatedHours)}.`,
-    });
-  }
-
-  const partsMedian = median(bench.marketPartsSek);
-  if (partsMedian !== null && quote.quotedPartsSek > partsMedian * VERDICT_THRESHOLDS.slightlyHigh) {
-    findings.push({
-      code: "PARTS_ABOVE_MARKET",
-      textSv: `Materialkostnaden är högre än vanligt (typiskt runt ${formatSek(partsMedian)}). Be om en specifikation av delarna.`,
-    });
-  }
-
-  if (ratio > VERDICT_THRESHOLDS.reasonable) {
-    findings.push({
-      code: "TOTAL_ABOVE_MARKET",
-      textSv: `Totalpriset är ${Math.round((ratio - 1) * 100)} % över medianpriset hos verkstäder i Stockholm.`,
-    });
-  }
-
-  let verdict: AuditVerdict =
-    ratio <= VERDICT_THRESHOLDS.reasonable ? "RIMLIGT" : ratio <= VERDICT_THRESHOLDS.slightlyHigh ? "NAGOT_HOGT" : "FOR_HOGT";
-  if (findings.some((f) => f.code === "HOURS_ABOVE_BOOK_TIME" || f.code === "UPSELL_KEYWORDS") && ratio > 1) {
-    verdict = "MISSTANKT_MERFORSALJNING";
-  }
+  const suspectedUpsell = upsell.length > 0 || findings.some((f) => f.code === "HOURS_ABOVE_BOOK_TIME");
 
   return {
-    verdict,
+    verdict: signal.verdict,
     quotedTotalSek,
-    benchmarkHours: bench.estimatedHours,
-    benchmarkTotalSek,
-    fairRangeSek: { low: fairRangeSek.low, high: fairRangeSek.high },
+    estimate,
+    diffFromTypicalPct: signal.diffFromTypicalPct,
+    positionInRange: signal.positionInRange,
     effectiveHourlyRateSek,
-    overBenchmarkSek: quotedTotalSek - benchmarkTotalSek,
+    suspectedUpsell,
     findings,
   };
-}
-
-/** Book hours × the Stockholm rate band, plus the typical parts cost. */
-export function computeFairRange(bench: ServiceBenchmarkInput): { low: number; high: number; typical: number } {
-  const parts = median(bench.marketPartsSek) ?? 0;
-  return {
-    low: laborCostSek(bench.estimatedHours, STOCKHOLM_HOURLY_RATE_SEK.min) + parts,
-    high: laborCostSek(bench.estimatedHours, STOCKHOLM_HOURLY_RATE_SEK.max) + parts,
-    typical: laborCostSek(bench.estimatedHours, STOCKHOLM_HOURLY_RATE_SEK.typical) + parts,
-  };
-}
-
-/** The AI may escalate a verdict, never soften it. */
-export function mergeVerdicts(deterministic: AuditVerdict, fromAi: AuditVerdict | null): AuditVerdict {
-  if (!fromAi) return deterministic;
-  return AUDIT_VERDICT_SEVERITY[fromAi] > AUDIT_VERDICT_SEVERITY[deterministic] ? fromAi : deterministic;
 }

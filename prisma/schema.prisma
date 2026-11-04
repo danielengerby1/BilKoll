@@ -7,6 +7,9 @@
 //   same way. They can become native Postgres enums when we migrate.
 // - Swedish domain terms are kept where they are the actual concept
 //   (regnr, besiktning, Godkänd Bilverkstad); everything else is English.
+// - Workshops are REAL businesses. Prices shown for them are BilKoll's
+//   ESTIMATES (src/lib/estimate.ts), never stored as if they were the
+//   workshop's own prices.
 
 generator client {
   provider        = "prisma-client-js"
@@ -44,14 +47,18 @@ model Vehicle {
   updatedAt      DateTime  @updatedAt
 
   quoteAudits QuoteAudit[]
-  bookings    BookingRequest[]
 }
 
+/// A real workshop. Public business info only – no prices, no copied ratings.
 model Workshop {
   id                   String    @id @default(cuid())
+  /// Stable key for seeding/updates, e.g. "speedy-solna".
+  slug                 String    @unique
   name                 String
-  /// WorkshopChain: MEKONOMEN | MECA | AUTOEXPERTEN | SPEEDY | BILIA | HEDIN | VOLVO | INDEPENDENT ...
+  /// WorkshopChain: MEKONOMEN | MECA | AUTOEXPERTEN | SPEEDY | BOSCH | OKQ8 | BILIA | DIN_BIL | HEDIN | TESLA | INDEPENDENT
   chain                String    @default("INDEPENDENT")
+  /// WorkshopTier: MARKESVERKSTAD | KEDJA | FRISTAENDE – drives the price estimate.
+  tier                 String
   address              String
   /// Postort, e.g. "Kungens Kurva", "Solna", "Nacka".
   city                 String
@@ -59,119 +66,76 @@ model Workshop {
   municipality         String
   /// 5 digits, no space: "14175".
   postalCode           String
+  /// Approximate (postal-area centre) until we geocode addresses.
   lat                  Float
   lng                  Float
   phone                String?
   website              String?
-  /// Trust tier flags (shown as badges in the comparison table).
+  /// Trust tier flags. Only true when verified against the official register.
   isGodkandBilverkstad Boolean   @default(false)
   isMrf                Boolean   @default(false)
   /// Auktoriserad märkesverkstad.
   isAuthorized         Boolean   @default(false)
   /// Makes the workshop is authorised for, comma-separated ("Volvo,Polestar").
   authorizedMakes      String?
-  /// Posted hourly rate, SEK incl. moms.
-  hourlyRateSek        Int
-  /// 1.0 – 5.0
-  rating               Float
-  reviewCount          Int       @default(0)
-  /// Earliest bookable slot ("tidigaste tid"). Mocked until booking integration.
-  nextAvailableAt      DateTime?
+  /// Where the business details were taken from.
+  sourceUrl            String
+  /// When the details were last checked against the source.
+  verifiedAt           DateTime
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
-  prices   WorkshopServicePrice[]
-  bookings BookingRequest[]
+  quoteAudits QuoteAudit[]
 
   @@index([municipality])
   @@index([postalCode])
 }
 
-/// Catalogue of standard, comparable jobs.
+/// Catalogue of standard, comparable jobs and the inputs for estimates.
 model StandardService {
-  id             String   @id @default(cuid())
+  id              String   @id @default(cuid())
   /// e.g. "bas-service", "bromsar-fram", "hjulskifte", "batteribyte", "felsokning"
-  slug           String   @unique
-  titleSv        String
-  descriptionSv  String?
+  slug            String   @unique
+  titleSv         String
+  descriptionSv   String?
   /// ServiceCategory: SERVICE | BROMSAR | DACK | ELSYSTEM | DIAGNOS
-  category       String
-  /// Book time ("normaltid") in hours for an average car. Used by the quote auditor.
-  estimatedHours Float
-  sortOrder      Int      @default(0)
-  createdAt      DateTime @default(now())
-
-  prices   WorkshopServicePrice[]
-  bookings BookingRequest[]
+  category        String
+  /// Book time ("normaltid") in hours for an average car.
+  estimatedHours  Float
+  /// Typical parts/consumables for an average car, SEK incl. moms.
+  typicalPartsSek Int
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
 }
 
-/// A workshop's price for one standard service.
-/// Total shown to the user = fixedPriceSek + partsPriceSek (computed, not stored).
-model WorkshopServicePrice {
-  id            String          @id @default(cuid())
-  workshopId    String
-  workshop      Workshop        @relation(fields: [workshopId], references: [id], onDelete: Cascade)
-  serviceId     String
-  service       StandardService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  /// Arbetskostnad – fixed labour price, SEK incl. moms.
-  fixedPriceSek Int
-  /// Materialkostnad – parts/consumables, SEK incl. moms.
-  partsPriceSek Int
-  /// Optional note shown in the breakdown, e.g. "Inkl. miljöavgift".
-  noteSv        String?
-  updatedAt     DateTime        @updatedAt
-
-  @@unique([workshopId, serviceId])
-  @@index([serviceId])
-}
-
-/// Result of the "BS-detector": a user-submitted workshop quote, audited.
+/// A quote the user received, compared with BilKoll's estimate.
+/// Over time these become real price data per workshop and job.
 model QuoteAudit {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   regnr             String?
-  vehicle           Vehicle? @relation(fields: [regnr], references: [regnr], onDelete: SetNull)
-  /// Free text or StandardService.slug when it matches one.
+  vehicle           Vehicle?  @relation(fields: [regnr], references: [regnr], onDelete: SetNull)
+  workshopId        String?
+  workshop          Workshop? @relation(fields: [workshopId], references: [id], onDelete: SetNull)
+  /// StandardService.slug.
   serviceType       String
   /// Raw pasted quote text, kept for re-audits.
   rawText           String?
   quotedHours       Float?
   quotedLaborSek    Int
   quotedPartsSek    Int
-  /// Benchmark used for the verdict (snapshot, so later price changes don't rewrite history).
+  /// Estimate used for the verdict (snapshot, so later model changes don't rewrite history).
   benchmarkHours    Float?
-  benchmarkTotalSek Int?
-  /// AuditVerdict: RIMLIGT | NAGOT_HOGT | FOR_HOGT | MISSTANKT_MERFORSALJNING
+  benchmarkLowSek   Int
+  benchmarkTotalSek Int
+  benchmarkHighSek  Int
+  /// AuditVerdict: BILLIGT | BRA_VARDE | DYRT
   verdict           String
+  suspectedUpsell   Boolean   @default(false)
   adviceSv          String
   /// Which AI model produced the advice (traceability).
   aiModel           String?
-  createdAt         DateTime @default(now())
+  createdAt         DateTime  @default(now())
 
   @@index([regnr])
-}
-
-/// A booking request sent to a workshop for a standard service.
-/// Until real booking integrations exist, the workshop confirms manually.
-model BookingRequest {
-  id              String          @id @default(cuid())
-  workshopId      String
-  workshop        Workshop        @relation(fields: [workshopId], references: [id], onDelete: Cascade)
-  serviceId       String
-  service         StandardService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  regnr           String?
-  vehicle         Vehicle?        @relation(fields: [regnr], references: [regnr], onDelete: SetNull)
-  customerName    String
-  customerEmail   String
-  customerPhone   String?
-  preferredDate   DateTime
-  messageSv       String?
-  /// Price snapshot at booking time (arbetskostnad + materialkostnad), SEK incl. moms.
-  quotedTotalSek  Int
-  /// BookingStatus: SKICKAD | BEKRAFTAD | AVBOKAD
-  status          String          @default("SKICKAD")
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-
-  @@index([workshopId])
-  @@index([regnr])
+  @@index([workshopId, serviceType])
 }
