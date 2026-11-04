@@ -3,8 +3,7 @@
 // Conventions (see CLAUDE.md):
 // - Money: whole SEK as Int, ALWAYS including 25 % moms. Field suffix `Sek`.
 // - "Enum" columns are String and validated by the Zod schemas in
-//   src/lib/domain.ts, so SQLite (dev) and PostgreSQL/Supabase (prod) work the
-//   same way. They can become native Postgres enums when we migrate.
+//   src/lib/domain.ts. They can become native Postgres enums later.
 // - Swedish domain terms are kept where they are the actual concept
 //   (regnr, besiktning, Godkänd Bilverkstad); everything else is English.
 // - Workshops are REAL businesses. Prices shown for them are BilKoll's
@@ -18,8 +17,11 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  /// Pooled connection (Supabase transaction pooler) – used by the app at runtime.
+  url       = env("DATABASE_URL")
+  /// Direct connection – used by `prisma migrate`.
+  directUrl = env("DIRECT_URL")
 }
 
 /// A car resolved from a Swedish registration number.

@@ -27,15 +27,17 @@ Premiumbilar: material ×1,3 och tid ×1,1. Antagandena finns i `src/lib/domain.
 
 ## Kom igång
 
-Kräver Node 20+.
+Kräver Node 20+ och en Postgres-databas (t.ex. Supabase).
 
 ```bash
-cp .env.example .env
+cp .env.example .env        # fyll i DATABASE_URL och DIRECT_URL
 npm install
-npm run db:push     # eller: npx prisma migrate deploy
+npx prisma migrate deploy
 npm run db:seed
-npm run dev         # http://localhost:3000
+npm run dev                 # http://localhost:3000
 ```
+
+**Vercel:** sätt `DATABASE_URL` (Supabase transaction pooler, port 6543) och `DIRECT_URL` (direkt, port 5432). Bygget kör migreringar och seed automatiskt.
 
 Testa med regnr `ABC 123` (Volvo XC60), `GHJ 78A` (Tesla Model Y) eller `KLM 901` (Toyota RAV4).
 

@@ -7,8 +7,8 @@ The core promise is that the user does not get overcharged ("bli lurad på verks
 ## Stack
 - Next.js 15 (App Router, Server Components, Server Actions), TypeScript `strict`
 - Tailwind CSS v4 + shadcn/ui (new-york, files in `src/components/ui`) + lucide-react
-- Prisma 6 with the Rust-free query compiler + driver adapters (`engineType = "client"`).
-  SQLite (`@prisma/adapter-better-sqlite3`, `prisma/dev.db`) in dev, PostgreSQL/Supabase (`@prisma/adapter-pg`) in prod. `src/server/db.ts` picks the adapter from `DATABASE_URL`.
+- Prisma 6 with the Rust-free query compiler + `@prisma/adapter-pg` (`engineType = "client"`). PostgreSQL everywhere: Supabase in prod, any Postgres locally. `DATABASE_URL` = pooled (runtime), `DIRECT_URL` = direct (migrations).
+- Hosted on Vercel. The `vercel-build` script runs `prisma migrate deploy` + the idempotent seed before `next build`.
 - Zod 4 for every boundary (form input, Server Action args, AI output, external APIs)
 - Anthropic SDK behind the provider-agnostic `AIService` (`src/server/ai`)
 - Vitest for unit tests
@@ -26,7 +26,8 @@ The core promise is that the user does not get overcharged ("bli lurad på verks
 | Reset DB + reseed | `npm run db:reset` |
 | Browse data | `npm run db:studio` |
 
-First run: `cp .env.example .env && npm i && npm run db:push && npm run db:seed && npm run dev`
+First run: `cp .env.example .env` (point it at a Postgres/Supabase DB) `&& npm i && npx prisma migrate deploy && npm run db:seed && npm run dev`
+Seed is idempotent (upserts by slug) and never deletes user data.
 
 ## Project layout
 ```

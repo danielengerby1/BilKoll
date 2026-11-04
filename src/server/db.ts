@@ -1,25 +1,30 @@
-import path from "node:path";
 import { PrismaClient } from "@prisma/client";
-import { PrismaBetterSQLite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 /**
- * Prisma Client with a driver adapter (Rust-free query compiler).
- * SQLite in dev, PostgreSQL/Supabase in prod – chosen from DATABASE_URL.
+ * Prisma Client with the pg driver adapter (Rust-free query compiler).
+ * Postgres everywhere: Supabase in production, any Postgres locally.
  */
 
-/** Prisma CLI resolves "file:./dev.db" relative to prisma/; do the same at runtime. */
-export function resolveSqliteUrl(url: string): string {
-  const file = url.replace(/^file:/, "");
-  return path.isAbsolute(file) ? file : path.join(process.cwd(), "prisma", file);
+const SUPABASE_HOST = /\.supabase\.(co|com)\b|pooler\.supabase\.com/;
+
+/**
+ * Supabase serves its own CA chain; node-postgres treats `sslmode=require` as
+ * full verification and rejects it. Encrypt the connection but skip CA
+ * verification for Supabase hosts only.
+ */
+export function pgConfig(url: string): { connectionString: string; ssl?: { rejectUnauthorized: boolean } } {
+  if (!SUPABASE_HOST.test(url)) return { connectionString: url };
+  const u = new URL(url);
+  u.searchParams.delete("sslmode");
+  u.searchParams.delete("pgbouncer");
+  return { connectionString: u.toString(), ssl: { rejectUnauthorized: false } };
 }
 
 function createClient(): PrismaClient {
-  const url = process.env.DATABASE_URL ?? "file:./dev.db";
-  const adapter = url.startsWith("postgres")
-    ? new PrismaPg({ connectionString: url })
-    : new PrismaBetterSQLite3({ url: resolveSqliteUrl(url) });
-  return new PrismaClient({ adapter });
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error("DATABASE_URL is not set");
+  return new PrismaClient({ adapter: new PrismaPg(pgConfig(url)) });
 }
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
